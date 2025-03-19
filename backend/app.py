@@ -4,12 +4,16 @@ from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
 import os
 import logging
+from flask import Flask
+from flask_cors import CORS
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+CORS(app)  # Allow all origins (or specify Vercel domain)
 
 @app.route('/')
 def home():
