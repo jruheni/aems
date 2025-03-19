@@ -303,7 +303,7 @@ const Upload: NextPage = () => {
     formData.append('test_scripts_count', testScripts.length.toString());
 
     try {
-        const response = await fetch('http://127.0.0.1:5000/api/ocr/process', {
+        const response = await fetch('https://aems.onrender.com/api/ocr/process', {
             method: 'POST',
             body: formData,
         });

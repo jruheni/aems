@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Flask Backend is Running!"
+
 # Configure application
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -38,5 +42,6 @@ def handle_error(e):
         code = e.code
     return jsonify(error=str(e)), code
 
+
 if __name__ == '__main__':
-    app.run(port=5000, debug=True) 
+    app.run(host='0.0.0.0', port=5000, debug=True)

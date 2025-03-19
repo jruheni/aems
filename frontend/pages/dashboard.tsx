@@ -23,17 +23,28 @@ const Dashboard: React.FC = () => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [currentExam, setCurrentExam] = useState<Exam | null>(null);
   const [exams, setExams] = useState<Exam[]>([]);
+  const [isClient, setIsClient] = useState(false); // Ensures client-only rendering
   const toast = useToast();
 
   useEffect(() => {
-    const username = localStorage.getItem('username');
-    if (!username) {
-      router.push('/login');
-      return;
-    }
-
-    fetchExams(username);
+    setIsClient(true);
   }, []);
+
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const username = localStorage.getItem('username');
+      if (!username) {
+        router.push('/login');
+        return;
+      }
+      fetchExams(username);
+    }
+  }, []);
+
+  if (!isClient) {
+    return null; // Prevents rendering during SSR
+  }
 
   const fetchExams = async (username: string) => {
     try {
