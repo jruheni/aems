@@ -1,6 +1,7 @@
 import { Box, Container, Flex, Heading, Button, useColorMode, useColorModeValue } from '@chakra-ui/react'
 import { MoonIcon, SunIcon } from '@chakra-ui/icons'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -10,6 +11,12 @@ const Layout = ({ children }: LayoutProps) => {
   const { colorMode, toggleColorMode } = useColorMode()
   const bgColor = useColorModeValue('gray.50', 'gray.900')
   const navBg = useColorModeValue('white', 'gray.800')
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+
+  useEffect(() => {
+    const username = localStorage.getItem('username')
+    setIsLoggedIn(!!username)
+  }, [])
 
   return (
     <Box minH="100vh" bg={bgColor}>
@@ -29,12 +36,14 @@ const Layout = ({ children }: LayoutProps) => {
             </Heading>
           </Link>
           <Flex gap={4} alignItems="center">
-            <Link href="/upload" passHref>
+            <Link href="/login" passHref>
               <Button variant="ghost">Upload Exam</Button>
             </Link>
-            <Link href="/history" passHref>
-              <Button variant="ghost">History</Button>
-            </Link>
+            {isLoggedIn && (
+              <Link href="/history" passHref>
+                <Button variant="ghost">History</Button>
+              </Link>
+            )}
             <Button onClick={toggleColorMode}>
               {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
             </Button>

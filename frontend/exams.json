@@ -1,0 +1,99 @@
+{
+  "exams": [
+    {
+      "username": "User",
+      "examData": [
+        {
+          "id": 1741815775703,
+          "title": "Chemistry",
+          "description": "",
+          "duration": "2 hours",
+          "date": "2025-03-12",
+          "questions": []
+        },
+        {
+          "id": 1,
+          "title": "Mathematics",
+          "description": "End of semester mathematics examination",
+          "duration": "3 hours",
+          "date": "2024-03-15",
+          "questions": [
+            {
+              "id": 1,
+              "text": "What is 2 + 2?",
+              "options": [
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "correctAnswer": "4"
+            },
+            {
+              "id": 2,
+              "text": "Solve for x: 3x + 5 = 14",
+              "options": [
+                "2",
+                "3",
+                "4",
+                "5"
+              ],
+              "correctAnswer": "3"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Physics",
+          "description": "Mid-term physics test",
+          "duration": "2 hours",
+          "date": "2024-03-20",
+          "questions": [
+            {
+              "id": 1,
+              "text": "What is the SI unit of force?",
+              "options": [
+                "Newton",
+                "Joule",
+                "Watt",
+                "Pascal"
+              ],
+              "correctAnswer": "Newton"
+            },
+            {
+              "id": 2,
+              "text": "What is the speed of light?",
+              "options": [
+                "299,792 km/s",
+                "300,000 km/s",
+                "310,000 km/s",
+                "290,000 km/s"
+              ],
+              "correctAnswer": "299,792 km/s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "username": "Adam",
+      "examData": [
+        {
+          "id": 1741870782367,
+          "title": "Algebra",
+          "description": "",
+          "date": "2025-01-17",
+          "questions": []
+        },
+        {
+          "id": 1741870514370,
+          "title": "Criminology",
+          "description": "",
+          "duration": "2 hours",
+          "date": "2025-03-13",
+          "questions": []
+        }
+      ]
+    }
+  ]
+}

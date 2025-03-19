@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import type { NextPage } from 'next'
 import Head from 'next/head'
 import {
@@ -40,6 +41,25 @@ const Feature = ({ title, text, icon }: { title: string; text: string; icon: any
 }
 
 const Home: NextPage = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [username, setUsername] = useState('');
+
+  useEffect(() => {
+    // Check if user is logged in (for now, we'll just simulate this)
+    const storedUser = localStorage.getItem('username');
+    if (storedUser) {
+      setIsLoggedIn(true);
+      setUsername(storedUser);
+    }
+  }, []);
+
+  const handleLoginRedirect = (e: React.MouseEvent) => {
+    if (!isLoggedIn) {
+      e.preventDefault();
+      window.location.href = '/login';
+    }
+  };
+
   return (
     <Layout>
       <Head>
@@ -61,7 +81,7 @@ const Home: NextPage = () => {
         <Text fontSize="xl" color={useColorModeValue('gray.600', 'gray.400')} mb={8}>
           Streamline your exam grading process with OCR technology
         </Text>
-        <Link href="/upload" passHref>
+        <Link href="/login" passHref>
           <Button
             size="lg"
             colorScheme="blue"
@@ -94,7 +114,7 @@ const Home: NextPage = () => {
         </SimpleGrid>
       </Box>
     </Layout>
-  )
+  );
 }
 
-export default Home 
+export default Home;
