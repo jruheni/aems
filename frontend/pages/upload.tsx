@@ -174,6 +174,81 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
+// Simplified function to extract student name from filename
+const extractStudentNameFromFilename = (filename: string): string => {
+  // Remove file extension
+  const nameWithoutExtension = filename.split('.')[0];
+  
+  // Convert camelCase or snake_case to spaces
+  const nameWithSpaces = nameWithoutExtension
+    .replace(/([A-Z])/g, ' $1') // Add space before capital letters
+    .replace(/_/g, ' ')         // Replace underscores with spaces
+    .replace(/-/g, ' ');        // Replace hyphens with spaces
+  
+  // Capitalize each word
+  const formattedName = nameWithSpaces
+    .trim()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+  
+  console.log(`Extracted student name from filename "${filename}": "${formattedName}"`);
+  return formattedName;
+};
+
+// Add these functions to save and load the rubric from localStorage
+
+// Save rubric to localStorage for a specific exam
+const saveRubricForExam = (examName: string, rubricInfo: FileInfo) => {
+  try {
+    const examRubrics = JSON.parse(localStorage.getItem('examRubrics') || '{}');
+    
+    // We need to create a serializable version of the rubric
+    // since File objects can't be directly serialized
+    const serializableRubric = {
+      fileName: rubricInfo.file.name,
+      fileType: rubricInfo.file.type,
+      fileSize: rubricInfo.file.size,
+      preview: rubricInfo.preview,
+      id: rubricInfo.id
+    };
+    
+    examRubrics[examName] = serializableRubric;
+    localStorage.setItem('examRubrics', JSON.stringify(examRubrics));
+    console.log(`Saved rubric for exam: ${examName}`);
+  } catch (error) {
+    console.error('Error saving rubric to localStorage:', error);
+  }
+};
+
+// Load rubric from localStorage for a specific exam
+const loadRubricForExam = (examName: string): FileInfo | null => {
+  try {
+    const examRubrics = JSON.parse(localStorage.getItem('examRubrics') || '{}');
+    const savedRubric = examRubrics[examName];
+    
+    if (!savedRubric) return null;
+    
+    // Create a new File object from the saved data
+    // Note: We can't fully reconstruct the original File object,
+    // but we can create a placeholder with the same metadata
+    const file = new File(
+      [new Blob([''], { type: savedRubric.fileType })], 
+      savedRubric.fileName, 
+      { type: savedRubric.fileType }
+    );
+    
+    return {
+      file,
+      preview: savedRubric.preview,
+      id: savedRubric.id
+    };
+  } catch (error) {
+    console.error('Error loading rubric from localStorage:', error);
+    return null;
+  }
+};
+
 const Upload: NextPage = () => {
   const router = useRouter();
   const { examName } = router.query;
@@ -194,6 +269,7 @@ const Upload: NextPage = () => {
     const storedUsername = localStorage.getItem('username');
     if (storedUsername) {
       setUsername(storedUsername);
+      
       // Load previous submissions
       const submissions = localStorage.getItem(`submissions_${storedUsername}`);
       if (submissions) {
@@ -205,8 +281,22 @@ const Upload: NextPage = () => {
             (submission: ExamSubmission) => submission.examName === examName
           );
           setPreviousSubmissions(filteredSubmissions);
+          
+          // Load the saved rubric for this exam
+          const savedRubric = loadRubricForExam(examName as string);
+          if (savedRubric) {
+            console.log(`Loaded saved rubric for exam: ${examName}`);
+            setRubric(savedRubric);
+          }
         } else {
           setPreviousSubmissions(allSubmissions);
+        }
+      } else if (examName) {
+        // Even if there are no submissions, try to load the rubric
+        const savedRubric = loadRubricForExam(examName as string);
+        if (savedRubric) {
+          console.log(`Loaded saved rubric for exam: ${examName}`);
+          setRubric(savedRubric);
         }
       }
     } else {
@@ -257,15 +347,21 @@ const Upload: NextPage = () => {
     reader.onload = () => {
       const result = reader.result;
       if (typeof result === 'string') {
-        setRubric({
+        const rubricInfo = {
           file,
           preview: result,
           id: Math.random().toString(36).substring(2, 9)
-        });
+        };
+        setRubric(rubricInfo);
+        
+        // Save the rubric for this exam
+        if (examName) {
+          saveRubricForExam(examName as string, rubricInfo);
+        }
       }
     };
     reader.readAsDataURL(file);
-  }, [toast]);
+  }, [toast, examName]);
 
   const handleTestScriptDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
@@ -328,6 +424,9 @@ const Upload: NextPage = () => {
       const result = await response.json();
       setResults(result);
       
+      // Extract student name from filename
+      const studentName = extractStudentNameFromFilename(testScript.file.name);
+      
       // Create a new submission with extracted text
       const newSubmission: ExamSubmission = {
         id: Date.now().toString(),
@@ -340,7 +439,7 @@ const Upload: NextPage = () => {
           total_points: result.total_points || 10
         },
         date: new Date().toISOString(),
-        studentName: testScript.file.name.split('.')[0] || username,
+        studentName: studentName,
         scriptFileName: testScript.file.name,
         extractedText: result.extracted_text ? {
           rubric: result.extracted_text.rubric || '',
@@ -378,6 +477,19 @@ const Upload: NextPage = () => {
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Update the function to remove the rubric
+  const handleRemoveRubric = () => {
+    setRubric(null);
+    
+    // Also remove from localStorage
+    if (examName) {
+      const examRubrics = JSON.parse(localStorage.getItem('examRubrics') || '{}');
+      delete examRubrics[examName as string];
+      localStorage.setItem('examRubrics', JSON.stringify(examRubrics));
+      console.log(`Removed rubric for exam: ${examName}`);
     }
   };
 
@@ -473,7 +585,7 @@ const Upload: NextPage = () => {
                           <Text fontSize="lg" fontWeight="bold" color="green.700">Rubric Uploaded</Text>
                           <Text color="green.600">{rubric.file.name}</Text>
                         </VStack>
-                        <CloseButton onClick={() => setRubric(null)} color="green.700" />
+                        <CloseButton onClick={handleRemoveRubric} color="green.700" />
                       </HStack>
                     </Box>
                   )}
@@ -610,9 +722,9 @@ const Upload: NextPage = () => {
                       <Box key={submission.id} p={6} borderWidth={1} borderRadius="lg">
                         <VStack spacing={4} align="start">
                           <HStack justify="space-between" w="full">
-                            <Text fontSize="xl" fontWeight="bold">
-                              {submission.studentName || 'Unnamed Student'}
-                            </Text>
+                            <Heading size="md" color="blue.600">
+                              Results for {submission.studentName || 'Unnamed Student'}
+                            </Heading>
                             <Text color="gray.500">
                               {submission.date ? new Date(submission.date).toLocaleDateString() : 'No date'}
                             </Text>
