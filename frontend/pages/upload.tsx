@@ -33,7 +33,12 @@ import {
   TabPanel,
   Grid,
   Image,
-  IconButton
+  IconButton,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon
 } from '@chakra-ui/react'
 import { FaCloudUploadAlt, FaCheckCircle, FaTimesCircle, FaInfoCircle, FaPlus, FaTrash, FaFileAlt } from 'react-icons/fa'
 import Layout from '@/components/Layout'
@@ -49,13 +54,36 @@ interface FileUpload {
   id: string
 }
 
+interface ResultItem {
+  score: number;
+  feedback: string;
+  total_points?: number;
+  studentName?: string;
+  extractedText?: {
+    rubric?: string;
+    script?: string;
+  };
+}
+
+interface FileInfo {
+  file: File;
+  preview: string;
+  id: string;
+}
+
 interface ExamSubmission {
-  id: string
-  examName: string
-  rubric: FileUpload
-  testScriptsZip: FileUpload | null
-  results: any[]
-  date: string
+  id: string;
+  examName: string;
+  rubric: FileInfo | null;
+  testScript: FileInfo | null;
+  results: ResultItem | { score: number; feedback: string; total_points?: number };
+  date: string;
+  studentName?: string;
+  scriptFileName?: string;
+  extractedText?: {
+    rubric?: string;
+    script?: string;
+  };
 }
 
 // Type definition for grading strictness levels
@@ -146,23 +174,15 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-// First, let's add a proper interface for the result type
-interface GradingResult {
-  studentName?: string;
-  score: number;
-  total_points: number;
-  feedback: string;
-}
-
 const Upload: NextPage = () => {
   const router = useRouter();
   const { examName } = router.query;
   const [username, setUsername] = useState<string>('');
-  const [rubric, setRubric] = useState<FileUpload | null>(null);
-  const [testScripts, setTestScripts] = useState<FileUpload[]>([]);
+  const [rubric, setRubric] = useState<FileInfo | null>(null);
+  const [testScript, setTestScript] = useState<FileInfo | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [results, setResults] = useState<GradingResult[]>([]);
+  const [results, setResults] = useState<ResultItem[]>([]);
   const [strictnessLevel, setStrictnessLevel] = useState<number>(2);
   const [previousSubmissions, setPreviousSubmissions] = useState<ExamSubmission[]>([]);
   const toast = useToast();
@@ -177,12 +197,22 @@ const Upload: NextPage = () => {
       // Load previous submissions
       const submissions = localStorage.getItem(`submissions_${storedUsername}`);
       if (submissions) {
-        setPreviousSubmissions(JSON.parse(submissions));
+        const allSubmissions = JSON.parse(submissions);
+        
+        // Filter submissions by the current exam name
+        if (examName) {
+          const filteredSubmissions = allSubmissions.filter(
+            (submission: ExamSubmission) => submission.examName === examName
+          );
+          setPreviousSubmissions(filteredSubmissions);
+        } else {
+          setPreviousSubmissions(allSubmissions);
+        }
       }
     } else {
       router.push('/login');
     }
-  }, [router]);
+  }, [router, examName]);
 
   useEffect(() => {
     if (inputRef.current) {
@@ -237,15 +267,14 @@ const Upload: NextPage = () => {
     reader.readAsDataURL(file);
   }, [toast]);
 
-  const handleTestScriptsDrop = useCallback((acceptedFiles: File[]) => {
-    const validFiles = acceptedFiles.filter(file => 
-      file.type.match(/^image\/(jpeg|png)|application\/pdf/)
-    );
+  const handleTestScriptDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
 
-    if (validFiles.length === 0) {
+    const file = acceptedFiles[0];
+    if (!file.type.match(/^image\/(jpeg|png)|application\/pdf/)) {
       toast({
-        title: 'Invalid files',
-        description: 'Please upload only PNG, JPG, or PDF files',
+        title: 'Invalid file type',
+        description: 'Please upload a PNG, JPG, or PDF file',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -253,84 +282,100 @@ const Upload: NextPage = () => {
       return;
     }
 
-    const newTestScripts = validFiles.map(file => {
-      return new Promise<FileUpload>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result;
-          if (typeof result === 'string') {
-            resolve({
-              file,
-              preview: result,
-              id: Math.random().toString(36).substring(2, 9)
-            });
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(newTestScripts).then(scripts => {
-      setTestScripts(prev => [...prev, ...scripts]);
-    });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        setTestScript({
+          file,
+          preview: result,
+          id: Math.random().toString(36).substring(2, 9),
+        });
+      }
+    };
+    reader.readAsDataURL(file);
   }, [toast]);
 
-  const removeTestScript = (id: string) => {
-    setTestScripts(prev => prev.filter(script => script.id !== id));
-  };
-
   const handleUpload = async () => {
-    if (!rubric || testScripts.length === 0) {
-        toast({
-            title: 'Missing files',
-        description: 'Please upload both rubric and test scripts',
-            status: 'warning',
-            duration: 3000,
-            isClosable: true,
-        });
-        return;
+    if (!rubric || !testScript) {
+      toast({
+        title: 'Missing files',
+        description: 'Please upload both rubric and test script',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
     }
 
     setIsUploading(true);
-    setUploadProgress(0);
-
     const formData = new FormData();
     formData.append('rubric', rubric.file);
-    testScripts.forEach((script, index) => {
-      formData.append(`test_script_${index}`, script.file);
-    });
+    formData.append('test_script', testScript.file);
     formData.append('strictness_level', strictnessLevel.toString());
-    formData.append('test_scripts_count', testScripts.length.toString());
 
     try {
-        const response = await fetch('https://aems.onrender.com/api/ocr/process', {
-            method: 'POST',
-            body: formData,
-        });
+      const response = await fetch('http://127.0.0.1:5000/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-        if (!response.ok) {
+      if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText);
-        }
+      }
 
-        const result = await response.json();
-        setResults(result);
-        toast({
+      const result = await response.json();
+      setResults(result);
+      
+      // Create a new submission with extracted text
+      const newSubmission: ExamSubmission = {
+        id: Date.now().toString(),
+        examName: examName as string,
+        rubric,
+        testScript,
+        results: {
+          score: result.score || 0,
+          feedback: result.feedback || 'No feedback available',
+          total_points: result.total_points || 10
+        },
+        date: new Date().toISOString(),
+        studentName: testScript.file.name.split('.')[0] || username,
+        scriptFileName: testScript.file.name,
+        extractedText: result.extracted_text ? {
+          rubric: result.extracted_text.rubric || '',
+          script: result.extracted_text.test_script || ''
+        } : undefined
+      };
+      
+      // Update previous submissions
+      const updated = [...previousSubmissions, newSubmission];
+      setPreviousSubmissions(updated);
+      
+      // Save to localStorage
+      const allSubmissions = JSON.parse(localStorage.getItem(`submissions_${username}`) || '[]');
+      const updatedAllSubmissions = [...allSubmissions, newSubmission];
+      localStorage.setItem(`submissions_${username}`, JSON.stringify(updatedAllSubmissions));
+      
+      // Clear only the test script, keep the rubric
+      setTestScript(null);
+      
+      toast({
         title: 'Success',
         description: 'Files processed successfully',
-            status: 'success',
-            duration: 5000,
-            isClosable: true,
-        });
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
     } catch (error) {
       console.error('Upload error:', error);
-        toast({
+      toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Upload failed',
-            status: 'error',
-            duration: 5000,
-            isClosable: true,
-        });
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     } finally {
       setIsUploading(false);
     }
@@ -372,113 +417,125 @@ const Upload: NextPage = () => {
             <TabPanels>
               <TabPanel>
                 <VStack spacing={8} py={10} w="full" maxW="4xl" mx="auto">
-                  <Box
-                    w="full"
-                    h="400px"
-                    border="2px dashed"
-                    borderColor={useColorModeValue('gray.200', 'gray.700')}
-                    rounded="lg"
-                    display="flex"
-                    flexDirection="column"
-                    alignItems="center"
-                    justifyContent="center"
-                    position="relative"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      handleRubricDrop(Array.from(e.dataTransfer.files));
-                    }}
-                    bg={useColorModeValue('white', 'gray.800')}
-                    p={8}
-                  >
-                    <Input
-                      type="file"
-                      height="100%"
-                      width="100%"
-                      position="absolute"
-                      top="0"
-                      left="0"
-                      opacity="0"
-                      accept="image/*,.pdf"
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          handleRubricDrop(Array.from(e.target.files));
-                        }
+                  {!rubric ? (
+                    <Box
+                      w="full"
+                      h="200px"
+                      border="2px dashed"
+                      borderColor={useColorModeValue('gray.200', 'gray.700')}
+                      rounded="lg"
+                      display="flex"
+                      flexDirection="column"
+                      alignItems="center"
+                      justifyContent="center"
+                      position="relative"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        handleRubricDrop(Array.from(e.dataTransfer.files));
                       }}
-                    />
-                    <Icon as={FaCloudUploadAlt} w={12} h={12} color="blue.500" mb={4} />
-                    <Text fontSize="lg" mb={2}>Upload Rubric</Text>
-                    <Text color="gray.500" fontSize="sm">Upload the rubric file (PNG, JPG, JPEG, PDF)</Text>
-                  </Box>
-
-                  {rubric && (
-                    <VStack spacing={4} w="full" maxW="4xl">
-                      <Box w="full" p={4} borderWidth={1} borderRadius="lg">
-                        <HStack justify="space-between">
-                          <HStack>
-                            <Icon as={FaFileAlt} />
-                            <Text>Rubric: {rubric.file.name}</Text>
-                          </HStack>
-                          <CloseButton onClick={() => setRubric(null)} />
-                        </HStack>
-                      </Box>
-                    </VStack>
+                    >
+                      <Input
+                        type="file"
+                        height="100%"
+                        width="100%"
+                        position="absolute"
+                        top="0"
+                        left="0"
+                        opacity="0"
+                        accept="image/*,.pdf"
+                        onChange={(e) => {
+                          if (e.target.files) {
+                            handleRubricDrop(Array.from(e.target.files));
+                          }
+                        }}
+                      />
+                      <Icon as={FaCloudUploadAlt} w={12} h={12} color="blue.500" mb={4} />
+                      <Text fontSize="lg" mb={2}>Upload Rubric</Text>
+                      <Text color="gray.500" fontSize="sm">Upload the rubric file (PNG, JPG, or PDF)</Text>
+                    </Box>
+                  ) : (
+                    <Box
+                      w="full"
+                      p={6}
+                      bg="green.50"
+                      borderWidth={1}
+                      borderColor="green.200"
+                      rounded="lg"
+                      display="flex"
+                      flexDirection="column"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      <HStack w="full" spacing={4}>
+                        <Icon as={FaFileAlt} color="green.500" boxSize={8} />
+                        <VStack align="start" spacing={0} flex={1}>
+                          <Text fontSize="lg" fontWeight="bold" color="green.700">Rubric Uploaded</Text>
+                          <Text color="green.600">{rubric.file.name}</Text>
+                        </VStack>
+                        <CloseButton onClick={() => setRubric(null)} color="green.700" />
+                      </HStack>
+                    </Box>
                   )}
 
-                  <Box
-                    w="full"
-                    h="400px"
-                    border="2px dashed"
-                    borderColor={useColorModeValue('gray.200', 'gray.700')}
-                    rounded="lg"
-                    display="flex"
-                    flexDirection="column"
-                    alignItems="center"
-                    justifyContent="center"
-                    position="relative"
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      handleTestScriptsDrop(Array.from(e.dataTransfer.files));
-                    }}
-                    bg={useColorModeValue('white', 'gray.800')}
-                    p={8}
-                  >
-                    <Input
-                      type="file"
-                      height="100%"
-                      width="100%"
-                      position="absolute"
-                      opacity="0"
-                      aria-hidden="true"
-                      accept="image/*,.pdf"
-                      multiple
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          handleTestScriptsDrop(Array.from(e.target.files));
-                        }
+                  {!testScript ? (
+                    <Box
+                      w="full"
+                      h="200px"
+                      border="2px dashed"
+                      borderColor={useColorModeValue('gray.200', 'gray.700')}
+                      rounded="lg"
+                      display="flex"
+                      flexDirection="column"
+                      alignItems="center"
+                      justifyContent="center"
+                      position="relative"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        handleTestScriptDrop(Array.from(e.dataTransfer.files));
                       }}
-                    />
-                    <Icon as={FaCloudUploadAlt} w={12} h={12} color="blue.500" mb={4} />
-                    <Text fontSize="lg" mb={2}>Upload Test Scripts</Text>
-                    <Text color="gray.500" fontSize="sm">Upload multiple test script files (PNG, JPG, JPEG, PDF)</Text>
-                  </Box>
-
-                  {testScripts.length > 0 && (
-                    <VStack w="full" spacing={2}>
-                      {testScripts.map((script) => (
-                        <HStack key={script.id} w="full" p={2} borderWidth={1} borderRadius="md">
-                          <Icon as={FaFileAlt} />
-                          <Text flex={1}>{script.file.name}</Text>
-                          <IconButton
-                            aria-label="Remove file"
-                            icon={<FaTrash />}
-                            size="sm"
-                            onClick={() => removeTestScript(script.id)}
-                          />
-                        </HStack>
-                      ))}
-                    </VStack>
+                    >
+                      <Input
+                        type="file"
+                        height="100%"
+                        width="100%"
+                        position="absolute"
+                        opacity="0"
+                        aria-hidden="true"
+                        accept="image/*,.pdf"
+                        onChange={(e) => {
+                          if (e.target.files) {
+                            handleTestScriptDrop(Array.from(e.target.files));
+                          }
+                        }}
+                      />
+                      <Icon as={FaCloudUploadAlt} w={12} h={12} color="blue.500" mb={4} />
+                      <Text fontSize="lg" mb={2}>Upload Test Script</Text>
+                      <Text color="gray.500" fontSize="sm">Upload a single test script file (PNG, JPG, or PDF)</Text>
+                    </Box>
+                  ) : (
+                    <Box
+                      w="full"
+                      p={6}
+                      bg="green.50"
+                      borderWidth={1}
+                      borderColor="green.200"
+                      rounded="lg"
+                      display="flex"
+                      flexDirection="column"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      <HStack w="full" spacing={4}>
+                        <Icon as={FaFileAlt} color="green.500" boxSize={8} />
+                        <VStack align="start" spacing={0} flex={1}>
+                          <Text fontSize="lg" fontWeight="bold" color="green.700">Test Script Uploaded</Text>
+                          <Text color="green.600">{testScript.file.name}</Text>
+                        </VStack>
+                        <CloseButton onClick={() => setTestScript(null)} color="green.700" />
+                      </HStack>
+                    </Box>
                   )}
 
                   <VStack spacing={4} w="full" maxW="md">
@@ -506,7 +563,7 @@ const Upload: NextPage = () => {
                       isLoading={isUploading}
                       loadingText="Uploading..."
                       onClick={handleUpload}
-                      isDisabled={!rubric || testScripts.length === 0}
+                      isDisabled={!rubric || !testScript}
                       w="full"
                     >
                       Upload and Process
@@ -530,7 +587,7 @@ const Upload: NextPage = () => {
                               <strong>
                                 Score: {result.score ?? 0}/{result.total_points ?? 0}
                               </strong>{' '}
-                              ({result.total_points > 0 
+                              ({result.total_points && result.total_points > 0 
                                 ? ((result.score / result.total_points) * 100).toFixed(1) 
                                 : '0'}%)
                             </Text>
@@ -544,43 +601,78 @@ const Upload: NextPage = () => {
               </TabPanel>
               <TabPanel>
                 <VStack spacing={6} w="full" maxW="4xl" align="stretch">
-                  {previousSubmissions.map((submission) => (
-                    <Box key={submission.id} p={6} borderWidth={1} borderRadius="lg">
-                      <VStack spacing={4} align="start">
-                        <HStack justify="space-between" w="full">
-                          <Text fontSize="xl" fontWeight="bold">
-                            {submission.examName}
-                          </Text>
-                          <Text color="gray.500">
-                            {new Date(submission.date).toLocaleDateString()}
-                          </Text>
-                        </HStack>
-                        <Text>
-                          <strong>Rubric:</strong> {submission.rubric.file?.name}
-                        </Text>
-                        <Text>
-                          <strong>Test Scripts ZIP:</strong> {submission.testScriptsZip?.file?.name}
-                        </Text>
-                        <Divider />
-                        <Text fontSize="lg" fontWeight="semibold">Results:</Text>
-                        {submission.results.map((result, index) => (
-                          <Box key={index} w="full" p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
-                            <VStack spacing={2} align="start">
-                              <Text fontWeight="bold">
-                                Student: {result.studentName || `Student ${index + 1}`}
-                              </Text>
-                              <Text>
-                                Score: {result.score}/{result.total_points} ({((result.score / result.total_points) * 100).toFixed(1)}%)
-                              </Text>
-                              <Text fontSize="sm" color="gray.500">
-                                {result.feedback}
-                              </Text>
-                            </VStack>
-                          </Box>
-                        ))}
-                      </VStack>
+                  {previousSubmissions.length === 0 ? (
+                    <Box p={6} borderWidth={1} borderRadius="lg" textAlign="center">
+                      <Text>No previous submissions found for {examName}.</Text>
                     </Box>
-                  ))}
+                  ) : (
+                    previousSubmissions.map((submission) => (
+                      <Box key={submission.id} p={6} borderWidth={1} borderRadius="lg">
+                        <VStack spacing={4} align="start">
+                          <HStack justify="space-between" w="full">
+                            <Text fontSize="xl" fontWeight="bold">
+                              {submission.studentName || 'Unnamed Student'}
+                            </Text>
+                            <Text color="gray.500">
+                              {submission.date ? new Date(submission.date).toLocaleDateString() : 'No date'}
+                            </Text>
+                          </HStack>
+                          <Text>
+                            <strong>Test Script:</strong> {submission.scriptFileName || 'No file name'}
+                          </Text>
+                          <Divider />
+                          <Text fontSize="lg" fontWeight="semibold">Results:</Text>
+                          
+                          {/* Handle different result formats safely */}
+                          <Box w="full">
+                            <Text fontWeight="bold">
+                              Score: {
+                                typeof submission.results === 'object' && 'score' in submission.results
+                                  ? submission.results.score
+                                  : 'N/A'
+                              }/{
+                                typeof submission.results === 'object' && 'total_points' in submission.results
+                                  ? submission.results.total_points || 10
+                                  : 10
+                              }
+                            </Text>
+                            <Text mt={2} whiteSpace="pre-wrap">
+                              {typeof submission.results === 'object' && 'feedback' in submission.results
+                                ? submission.results.feedback
+                                : 'No feedback available'}
+                            </Text>
+                          </Box>
+                          
+                          {/* Extracted Text Accordion */}
+                          {submission.extractedText && (
+                            <Accordion allowToggle w="full" mt={2}>
+                              <AccordionItem border="none">
+                                <h2>
+                                  <AccordionButton bg={useColorModeValue('gray.100', 'gray.700')} borderRadius="md">
+                                    <Box flex="1" textAlign="left" fontWeight="medium">
+                                      View Extracted Text
+                                    </Box>
+                                    <AccordionIcon />
+                                  </AccordionButton>
+                                </h2>
+                                <AccordionPanel pb={4} bg={useColorModeValue('gray.50', 'gray.800')} borderRadius="md">
+                                  <Text fontWeight="bold" mt={2}>Rubric Text:</Text>
+                                  <Box p={2} bg={useColorModeValue('white', 'gray.700')} borderRadius="md" mb={3} whiteSpace="pre-wrap">
+                                    {submission.extractedText.rubric || 'No text extracted'}
+                                  </Box>
+                                  
+                                  <Text fontWeight="bold">Student Answer:</Text>
+                                  <Box p={2} bg={useColorModeValue('white', 'gray.700')} borderRadius="md" whiteSpace="pre-wrap">
+                                    {submission.extractedText.script || 'No text extracted'}
+                                  </Box>
+                                </AccordionPanel>
+                              </AccordionItem>
+                            </Accordion>
+                          )}
+                        </VStack>
+                      </Box>
+                    ))
+                  )}
                 </VStack>
               </TabPanel>
             </TabPanels>

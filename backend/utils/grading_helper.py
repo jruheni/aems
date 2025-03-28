@@ -6,85 +6,77 @@ Includes various grading standards and text processing utilities
 
 import re
 import os
+import logging
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
 from mistralai.exceptions import MistralException
 
+logger = logging.getLogger(__name__)
+
+def get_mistral_api_key():
+    """
+    Retrieve and validate Mistral API key from environment
+    """
+    api_key = os.getenv('MISTRAL_API_KEY')
+    if not api_key:
+        logger.error("MISTRAL_API_KEY not set in environment variables")
+        raise Exception("MISTRAL_API_KEY not set")
+    return api_key
+
 def create_mistral_client():
     """
     Create and configure Mistral API client
-    Includes debug logging for API key verification
-    Raises exception if API key is not set
     """
-    print("\nDebugging Mistral client creation:")
-    print("Current working directory:", os.getcwd())
-    print("Environment variables loaded:", os.environ.get('FLASK_APP') is not None)
-    
-    api_key = os.getenv('MISTRAL_API_KEY')
-    print("API Key found:", api_key is not None)
-    if api_key:
-        print("API Key length:", len(api_key))
-        print("API Key first 4 chars:", api_key[:4])
-    
-    if not api_key:
-        raise Exception("MISTRAL_API_KEY not set")
+    api_key = get_mistral_api_key()
     return MistralClient(api_key=api_key)
 
 def analyze_answer(text, keywords, total_points):
     """
-    Analyze student answer based on keywords
-    Args:
-        text: Student's answer text
-        keywords: List of expected keywords/concepts
-        total_points: Maximum points possible
-    Returns:
-        tuple: (score, list of matched keywords)
+    Analyze student answer based on keyword presence
     """
     score = 0
     matched_keywords = []
-    
+
     for keyword in keywords:
         if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text.lower()):
             score += total_points / len(keywords)
             matched_keywords.append(keyword)
-    
+
     return score, matched_keywords
 
 def generate_feedback(score, matched_keywords, missing_keywords):
     """
-    Generate detailed feedback based on grading results
-    Highlights both strengths and areas for improvement
+    Generate feedback based on matched and missing keywords
     """
     feedback = []
-    
+
     if matched_keywords:
         feedback.append("Good points mentioned: " + ", ".join(matched_keywords))
-    
+
     if missing_keywords:
         feedback.append("Consider including: " + ", ".join(missing_keywords))
-    
+
     return "\n".join(feedback)
 
 def grade_exam(text, grading_criteria=None):
     """
-    Grade the exam text based on predefined or provided criteria
+    Grade text using keyword matching (offline fallback)
     """
     if grading_criteria is None:
-        # Default grading criteria - should be customized based on actual exam
         grading_criteria = {
             'keywords': ['concept1', 'concept2', 'concept3'],
             'total_points': 100
         }
-    
+
     score, matched_keywords = analyze_answer(
         text,
         grading_criteria['keywords'],
         grading_criteria['total_points']
     )
-    
+
     missing_keywords = [k for k in grading_criteria['keywords'] if k not in matched_keywords]
     feedback = generate_feedback(score, matched_keywords, missing_keywords)
-    
+
     return {
         'score': round(score, 2),
         'feedback': feedback
@@ -92,28 +84,19 @@ def grade_exam(text, grading_criteria=None):
 
 def extract_total_points(text):
     """
-    Extract total points from question text
-    Looks for patterns like (10 points), (10 marks), etc.
-    Returns 10 as default if no point value is found
+    Extract total points from question text (e.g. (10 marks), (15 pts))
     """
     try:
-        points_match = re.search(r'\((\d+)[\s,]*(?:points|pts|marks|mks)\)', text, re.IGNORECASE)
-        if points_match:
-            return int(points_match.group(1))
-        return 10  # Default to 10 if not found
+        match = re.search(r'\((\d+)[\s,]*(?:points|pts|marks|mks)\)', text, re.IGNORECASE)
+        return int(match.group(1)) if match else 10
     except:
-        return 10  # Default to 10 if there's an error
+        return 10
 
 def get_strictness_description(level):
     """
-    Get description and rules for each grading standard level
-    Levels:
-    1: Content Focus - Emphasis on understanding, ignore presentation
-    2: Standard - Balanced approach (default)
-    3: Strict - Thorough evaluation
-    4: Academic - Highest precision requirements
+    Get grading standard description based on strictness level (1–4)
     """
-    strictness_levels = {
+    levels = {
         1: {
             "name": "Content Focus",
             "description": "Focus solely on content and understanding. Ignore spelling, grammar, and formatting issues.",
@@ -163,38 +146,18 @@ def get_strictness_description(level):
             ]
         }
     }
-    return strictness_levels.get(level, strictness_levels[2])
+
+    return levels.get(level, levels[2])
 
 def grade_with_mistral(answer_text, rubric_text, strictness_level=2):
     """
-    Main grading function using Mistral AI
-    
-    Process:
-    1. Creates Mistral client
-    2. Extracts total points from question
-    3. Gets grading standard rules
-    4. Prepares detailed prompt for AI
-    5. Processes response and extracts score/feedback
-    
-    Args:
-        answer_text: Student's answer
-        rubric_text: Grading rubric
-        strictness_level: Integer 1-4 indicating grading strictness
-    
-    Returns:
-        dict with score, total_points, feedback, and grading_standard
+    Grade an answer using Mistral AI with a strictness rubric
     """
     try:
-        # Create client when needed
         client = create_mistral_client()
-
-        # Extract total points from the question
         total_points = extract_total_points(answer_text)
+        strictness = get_strictness_description(strictness_level)
 
-        # Get strictness level details
-        strictness = get_strictness_description(int(strictness_level))
-
-        # Prepare the prompt for Mistral
         system_prompt = f"""You are an expert exam grader using the {strictness['name']} grading standard. Your task is to:
 1. Grade the student's answer based on the provided rubric
 2. Provide a score out of {total_points} points
@@ -204,20 +167,16 @@ def grade_with_mistral(answer_text, rubric_text, strictness_level=2):
 
 Grading Standard: {strictness['description']}
 
-IMPORTANT GRADING RULES - YOU MUST FOLLOW THESE EXACTLY:
+IMPORTANT GRADING RULES:
 {chr(10).join(f"- {rule}" for rule in strictness['rules'])}
 
 Additional Notes:
-- For Content Focus level, if the student demonstrates understanding, they should receive full points regardless of presentation
-- Only Academic level should care about spelling/grammar
-- Be willing to give 100% scores when deserved
-- Don't be unnecessarily harsh with grading"""
+- For Content Focus, give full points if the student demonstrates understanding
+- Only Academic level should penalize spelling/grammar
+- Be willing to give full marks where deserved
+- Don’t be unnecessarily harsh"""
 
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(
-                role="user",
-                content=f"""Please grade this answer based on the rubric provided:
+        user_prompt = f"""Please grade this answer based on the rubric provided:
 
 Rubric:
 {rubric_text}
@@ -225,30 +184,30 @@ Rubric:
 Student's Answer:
 {answer_text}
 
-Remember to follow the {strictness['name']} grading standard as specified.
+Remember to follow the {strictness['name']} grading standard.
 
-Provide your response in the following JSON format:
+Provide your response in this format:
 {{
     "score": <numeric_score>,
     "total_points": {total_points},
     "feedback": "<detailed_feedback>"
 }}"""
-            )
+
+        messages = [
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt)
         ]
 
-        # Get response from Mistral
-        chat_response = client.chat(
+        response = client.chat(
             model="mistral-medium",
             messages=messages,
-            temperature=0.1,  # Low temperature for more consistent grading
+            temperature=0.1,
             max_tokens=1000
         )
 
-        # Extract and validate the response
-        response_text = chat_response.choices[0].message.content
-        
-        # Basic validation to ensure we got a valid response
-        if not response_text or not any(keyword in response_text.lower() for keyword in ['score', 'feedback']):
+        response_text = response.choices[0].message.content
+
+        if not response_text or not any(k in response_text.lower() for k in ['score', 'feedback']):
             raise ValueError("Invalid response format from Mistral")
 
         return {
@@ -259,34 +218,26 @@ Provide your response in the following JSON format:
         }
 
     except MistralException as e:
-        raise Exception(f"Error in grading process: {str(e)}")
+        raise Exception(f"Mistral API error: {str(e)}")
     except Exception as e:
-        raise Exception(f"Error in grading process: {str(e)}")
+        raise Exception(f"Grading error: {str(e)}")
 
 def extract_score(response_text):
     """
-    Extract numeric score from Mistral's JSON response
-    Uses regex to find score field
-    Returns 0 if score cannot be extracted
+    Extract score from Mistral's response JSON
     """
     try:
-        score_match = re.search(r'"score":\s*(\d+(?:\.\d+)?)', response_text)
-        if score_match:
-            return float(score_match.group(1))
-        return 0
+        match = re.search(r'"score":\s*(\d+(?:\.\d+)?)', response_text)
+        return float(match.group(1)) if match else 0
     except:
         return 0
 
 def extract_feedback(response_text):
     """
-    Extract feedback text from Mistral's JSON response
-    Uses regex to find feedback field
-    Returns error message if feedback cannot be extracted
+    Extract feedback from Mistral's response JSON
     """
     try:
-        feedback_match = re.search(r'"feedback":\s*"([^"]+)"', response_text)
-        if feedback_match:
-            return feedback_match.group(1)
-        return "Error extracting feedback"
+        match = re.search(r'"feedback":\s*"([^"]+)"', response_text)
+        return match.group(1) if match else "Feedback not found"
     except:
-        return "Error extracting feedback" 
+        return "Error extracting feedback"

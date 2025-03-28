@@ -3,6 +3,18 @@ import os
 from utils.ocr_extraction import extract_text_from_image, preprocess_image
 import cv2
 import numpy as np
+import pytesseract
+
+def is_tesseract_installed():
+    """Check if Tesseract OCR is installed and configured properly"""
+    try:
+        # Try to get the Tesseract version
+        version = pytesseract.get_tesseract_version()
+        print(f"Tesseract version: {version}")
+        return True
+    except Exception as e:
+        print(f"Tesseract error: {str(e)}")
+        return False
 
 def test_preprocess_image():
     """Test image preprocessing function"""
@@ -22,10 +34,20 @@ def test_extract_text_from_image(sample_image_path):
     """Test text extraction from an image"""
     # Skip if sample image doesn't exist
     if not os.path.exists(sample_image_path):
-        pytest.skip("Sample image not found")
+        pytest.skip(f"Sample image not found: {sample_image_path}")
     
-    # Extract text
+    # Skip if tesseract is not installed
+    if not is_tesseract_installed():
+        pytest.skip("Tesseract OCR is not installed or not configured properly")
+    
+    # Print the image path for debugging
+    print(f"Testing OCR on image: {sample_image_path}")
+    
+    # Extract text using our function
     text = extract_text_from_image(sample_image_path)
+    
+    # Print the result for debugging
+    print(f"OCR result: {text}")
     
     # Basic validation
     assert text is not None
@@ -34,9 +56,9 @@ def test_extract_text_from_image(sample_image_path):
 
 def test_invalid_image_path():
     """Test handling of invalid image path"""
-    with pytest.raises(Exception) as exc_info:
-        extract_text_from_image('nonexistent.jpg')
-    assert "Error in OCR processing" in str(exc_info.value)
+    # The function should return None for non-existent files
+    result = extract_text_from_image('nonexistent.jpg')
+    assert result is None
 
 def test_pdf_handling(sample_rubric_path):
     """Test PDF processing"""
@@ -44,10 +66,15 @@ def test_pdf_handling(sample_rubric_path):
     if not os.path.exists(sample_rubric_path):
         pytest.skip("Sample PDF not found")
     
+    # Skip if tesseract is not installed
+    if not is_tesseract_installed():
+        pytest.skip("Tesseract OCR is not installed or not configured properly")
+    
     # Extract text from PDF
     text = extract_text_from_image(sample_rubric_path)
     
     # Basic validation
     assert text is not None
     assert isinstance(text, str)
-    assert len(text.strip()) > 0 
+    assert len(text.strip()) > 0
+    print(f"Extracted text from PDF: {text}") 

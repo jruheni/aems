@@ -26,26 +26,7 @@ const Dashboard: React.FC = () => {
   const [isClient, setIsClient] = useState(false); // Ensures client-only rendering
   const toast = useToast();
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const username = localStorage.getItem('username');
-      if (!username) {
-        router.push('/login');
-        return;
-      }
-      fetchExams(username);
-    }
-  }, []);
-
-  if (!isClient) {
-    return null; // Prevents rendering during SSR
-  }
-
+  // Define fetchExams before using it
   const fetchExams = async (username: string) => {
     try {
       const response = await fetch(`/api/exams?username=${encodeURIComponent(username)}`);
@@ -73,8 +54,27 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const username = localStorage.getItem('username');
+      if (!username) {
+        router.push('/login');
+        return;
+      }
+      fetchExams(username); // This will now work correctly
+    }
+  }, []);
+
+  if (!isClient) {
+    return null; // Prevents rendering during SSR
+  }
+
   const handleExamClick = (exam: Exam) => {
-    router.push(`/upload?examId=${exam.id}&examName=${encodeURIComponent(exam.title)}`);
+    router.push(`/upload?examName=${encodeURIComponent(exam.title)}`);
   };
 
   const handleCreateNewExam = () => {

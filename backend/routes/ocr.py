@@ -96,78 +96,89 @@ def extract_test_scripts(zip_path):
         raise
 
 @bp.route('/process', methods=['POST'])
-@cross_origin()
-def process_exam():
+def process_files():
+    """Process uploaded files for OCR and grading"""
+    logger.debug("OCR process endpoint called")
+    
+    # Check if files are present
+    if 'rubric' not in request.files:
+        logger.error("No rubric file provided")
+        return jsonify({'error': 'No rubric file provided'}), 400
+    
+    if 'test_script' not in request.files:
+        logger.error("No test script provided")
+        return jsonify({'error': 'No test script provided'}), 400
+    
+    rubric_file = request.files['rubric']
+    test_script_file = request.files['test_script']
+    
+    # Check if files are empty
+    if rubric_file.filename == '':
+        logger.error("Empty rubric file")
+        return jsonify({'error': 'Empty rubric file'}), 400
+    
+    if test_script_file.filename == '':
+        logger.error("Empty test script file")
+        return jsonify({'error': 'Empty test script file'}), 400
+    
+    # Check file types
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'pdf'}
+    
+    if not allowed_file(rubric_file.filename):
+        logger.error(f"Invalid rubric file type: {rubric_file.filename}")
+        return jsonify({'error': 'Invalid rubric file type'}), 400
+    
+    if not allowed_file(test_script_file.filename):
+        logger.error(f"Invalid test script file type: {test_script_file.filename}")
+        return jsonify({'error': 'Invalid test script file type'}), 400
+    
+    # Save files temporarily
+    rubric_path = os.path.join(current_app.config['UPLOAD_FOLDER'], secure_filename(rubric_file.filename))
+    test_script_path = os.path.join(current_app.config['UPLOAD_FOLDER'], secure_filename(test_script_file.filename))
+    
+    rubric_file.save(rubric_path)
+    test_script_file.save(test_script_path)
+    
+    logger.debug(f"Files saved: {rubric_path}, {test_script_path}")
+    
+    # Extract text from files
     try:
-        logger.info("Starting exam processing")
-        logger.debug(f"Request files: {request.files}")
-        logger.debug(f"Request form: {request.form}")
-
-        # Validate rubric
-        if 'rubric' not in request.files:
-            return jsonify({'error': 'No rubric file'}), 400
-        
-        rubric_file = request.files['rubric']
-        if not allowed_file(rubric_file):
-            return jsonify({'error': 'Invalid rubric file type'}), 400
-
-        # Get test scripts count
-        test_scripts_count = int(request.form.get('test_scripts_count', 0))
-        if test_scripts_count == 0:
-            return jsonify({'error': 'No test scripts provided'}), 400
-
-        # Process files
-        results = []
-        
-        # Save and process rubric
-        rubric_filename = secure_filename(rubric_file.filename)
-        rubric_path = os.path.join(current_app.config['UPLOAD_FOLDER'], rubric_filename)
-        rubric_file.save(rubric_path)
-        logger.debug(f"Rubric saved to: {rubric_path}")
-        
         rubric_text = extract_text_from_image(rubric_path)
-        logger.debug("Rubric text extracted successfully")
-
-        # Process each test script
-        for i in range(test_scripts_count):
-            script_key = f'test_script_{i}'
-            if script_key not in request.files:
-                continue
-
-            script_file = request.files[script_key]
-            if not allowed_file(script_file):
-                continue
-
-            script_filename = secure_filename(script_file.filename)
-            script_path = os.path.join(current_app.config['UPLOAD_FOLDER'], script_filename)
-            script_file.save(script_path)
-            logger.debug(f"Test script saved to: {script_path}")
-
-            script_text = extract_text_from_image(script_path)
-            logger.debug(f"Test script {i} text extracted successfully")
-
-            # Compare texts and generate result
-            # This is a placeholder - implement your actual comparison logic
-            result = {
-                'studentName': f"Student {i + 1}",
-                'score': 80,  # Placeholder score
-                'total_points': 100,
-                'feedback': f"Processed test script {script_filename}"
-            }
-            results.append(result)
-
-            # Clean up files
-            os.remove(script_path)
-
-        # Clean up rubric file
-        os.remove(rubric_path)
-
-        logger.info("Exam processing completed successfully")
-        return jsonify(results)
-
+        test_script_text = extract_text_from_image(test_script_path)
+        
+        # Log the extracted text for debugging
+        logger.debug(f"Extracted rubric text: {rubric_text}")
+        logger.debug(f"Extracted test script text: {test_script_text}")
+        
+        # Always attempt to grade, even if text extraction is partial or has issues
+        if not rubric_text:
+            rubric_text = "No text could be extracted from the rubric."
+            logger.warning("No text extracted from rubric, but proceeding with grading")
+        
+        if not test_script_text:
+            test_script_text = "No text could be extracted from the test script."
+            logger.warning("No text extracted from test script, but proceeding with grading")
+        
+        # Grade the test script
+        grading_result = grade_with_mistral(test_script_text, rubric_text)
+        
+        # Add the extracted text to the response for debugging
+        grading_result['extracted_text'] = {
+            'rubric': rubric_text,
+            'test_script': test_script_text
+        }
+        
+        return jsonify(grading_result), 200
+        
     except Exception as e:
-        logger.error("Error in exam processing", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error processing files: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error processing files: {str(e)}'}), 500
+    finally:
+        # Clean up temporary files
+        if os.path.exists(rubric_path):
+            os.remove(rubric_path)
+        if os.path.exists(test_script_path):
+            os.remove(test_script_path)
 
 def handle_preflight():
     response = make_response()
@@ -263,4 +274,59 @@ def upload_test():
 
     except Exception as e:
         logger.error(f"Upload test error: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/extract', methods=['POST'])
+def extract_text():
+    """Extract text from uploaded files without grading"""
+    logger.debug("OCR extract endpoint called")
+    
+    # Check if files are present
+    if 'rubric' not in request.files:
+        logger.error("No rubric file provided")
+        return jsonify({'error': 'No rubric file provided'}), 400
+    
+    if 'test_script' not in request.files:
+        logger.error("No test script provided")
+        return jsonify({'error': 'No test script provided'}), 400
+    
+    rubric_file = request.files['rubric']
+    test_script_file = request.files['test_script']
+    
+    # Check if files are empty
+    if rubric_file.filename == '':
+        logger.error("Empty rubric file")
+        return jsonify({'error': 'Empty rubric file'}), 400
+    
+    if test_script_file.filename == '':
+        logger.error("Empty test script file")
+        return jsonify({'error': 'Empty test script file'}), 400
+    
+    # Save files temporarily
+    rubric_path = os.path.join(current_app.config['UPLOAD_FOLDER'], secure_filename(rubric_file.filename))
+    test_script_path = os.path.join(current_app.config['UPLOAD_FOLDER'], secure_filename(test_script_file.filename))
+    
+    rubric_file.save(rubric_path)
+    test_script_file.save(test_script_path)
+    
+    logger.debug(f"Files saved: {rubric_path}, {test_script_path}")
+    
+    # Extract text from files
+    try:
+        rubric_text = extract_text_from_image(rubric_path)
+        test_script_text = extract_text_from_image(test_script_path)
+        
+        return jsonify({
+            'rubric_text': rubric_text,
+            'script_text': test_script_text
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error extracting text: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error extracting text: {str(e)}'}), 500
+    finally:
+        # Clean up temporary files
+        if os.path.exists(rubric_path):
+            os.remove(rubric_path)
+        if os.path.exists(test_script_path):
+            os.remove(test_script_path) 

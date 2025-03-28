@@ -22,7 +22,7 @@ def test_extract_feedback():
 
     # Test invalid JSON
     feedback = extract_feedback('invalid json')
-    assert feedback == "Error extracting feedback"
+    assert feedback == "Feedback not found"
 
 @pytest.mark.skipif(not os.getenv('MISTRAL_API_KEY'), 
                     reason="MISTRAL_API_KEY not set")
@@ -67,7 +67,7 @@ def test_grade_with_mistral_error_handling():
     try:
         with pytest.raises(Exception) as exc_info:
             grade_with_mistral("test", "test")  # Should raise an error with invalid API key
-        assert "Error in grading process" in str(exc_info.value)
+        assert "Mistral API error" in str(exc_info.value)
     finally:
         # Restore original API key
         if original_key:
