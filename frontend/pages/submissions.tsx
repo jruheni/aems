@@ -222,7 +222,7 @@ const SubmissionsPage: React.FC = () => {
     }
   };
 
-  const handleUpload = async () => {
+  const handleRubricUpload = async () => {
     if (!file) {
       setError('Please select a file to upload');
       return;
@@ -237,6 +237,21 @@ const SubmissionsPage: React.FC = () => {
     setUploadProgress(10);
     
     try {
+      // Determine file type
+      let fileType = '';
+      if (file.type.includes('text/') || file.name.endsWith('.txt')) {
+        fileType = 'text';
+      } else if (file.type.includes('application/pdf') || file.name.endsWith('.pdf')) {
+        fileType = 'pdf';
+      } else if (file.type.includes('image/') || file.name.match(/\.(jpeg|jpg|png)$/i)) {
+        fileType = 'image';
+      } else {
+        fileType = 'other';
+      }
+      
+      // Get file size in bytes
+      const fileSize = file.size;
+      
       // Simulate progress
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
@@ -248,7 +263,93 @@ const SubmissionsPage: React.FC = () => {
         });
       }, 300);
       
-      await uploadRubric(examId as string, file);
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${examId}_rubric_${Date.now()}.${fileExt}`;
+      const filePath = fileName;
+      
+      // Use the existing 'rubrics' bucket
+      const bucketName = 'rubrics';
+      
+      // Upload file to storage
+      const { error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+      
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+      
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(filePath);
+      
+      // Extract text content if it's an image
+      let textContent = '';
+      if (fileType === 'image') {
+        try {
+          textContent = await extractTextFromImage(publicUrl);
+        } catch (ocrError) {
+          console.error('OCR error:', ocrError);
+          // Continue without extracted text
+        }
+      } else if (fileType === 'text') {
+        // For text files, read the content directly
+        textContent = await file.text();
+      }
+      
+      // First check if a rubric already exists for this exam
+      const { data: existingRubric, error: fetchError } = await supabase
+        .from('rubrics')
+        .select('id')
+        .eq('exam_id', examId)
+        .maybeSingle();
+      
+      if (fetchError) {
+        console.error('Error checking for existing rubric:', fetchError);
+      }
+      
+      let insertError;
+      
+      if (existingRubric?.id) {
+        // Update existing rubric
+        const { error } = await supabase
+          .from('rubrics')
+          .update({
+            file_name: file.name,
+            file_type: fileType,
+            file_size: fileSize,
+            image_url: publicUrl,
+            content: textContent,
+            created_at: new Date().toISOString()
+          })
+          .eq('id', existingRubric.id);
+        
+        insertError = error;
+      } else {
+        // Insert new rubric
+        const { error } = await supabase
+          .from('rubrics')
+          .insert({
+            exam_id: examId,
+            file_name: file.name,
+            file_type: fileType,
+            file_size: fileSize,
+            image_url: publicUrl,
+            content: textContent,
+            created_at: new Date().toISOString()
+          });
+        
+        insertError = error;
+      }
+      
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -270,6 +371,7 @@ const SubmissionsPage: React.FC = () => {
       // Reset state
       setFile(null);
     } catch (error) {
+      console.error('Upload error:', error);
       setError(error instanceof Error ? error.message : 'Failed to upload file');
       
       toast({
@@ -281,6 +383,105 @@ const SubmissionsPage: React.FC = () => {
       });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleSubmissionUpload = async () => {
+    if (!file || !studentName.trim()) {
+      setError('Please provide both student name and file');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${examId}_${studentName.replace(/\s+/g, '_')}_${Date.now()}.${fileExt}`;
+      const filePath = fileName;
+      
+      // Use the existing 'submissions' bucket
+      const bucketName = 'submissions';
+      
+      // Upload file to storage
+      const { error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(filePath);
+
+      // Extract text if it's an image
+      let extractedText = '';
+      if (file.type.includes('image/') || file.name.match(/\.(jpeg|jpg|png)$/i)) {
+        try {
+          extractedText = await extractTextFromImage(publicUrl);
+        } catch (ocrError) {
+          console.error('OCR error:', ocrError);
+          // Continue without extracted text
+        }
+      } else if (file.type.includes('text/') || file.name.endsWith('.txt')) {
+        // For text files, read the content directly
+        extractedText = await file.text();
+      }
+
+      // Insert into submissions table without updated_at
+      const { error: insertError } = await supabase
+        .from('submissions')
+        .insert({
+          exam_id: examId,
+          student_name: studentName,
+          script_file_name: file.name,
+          script_file_url: publicUrl,
+          extracted_text_script: extractedText,
+          created_at: new Date().toISOString()
+        });
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+
+      toast({
+        title: 'Upload successful',
+        description: `${studentName}'s submission has been uploaded`,
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
+
+      // Reload submissions
+      await loadSubmissions(examId as string);
+      
+      // Close the modal
+      onClose();
+      
+      // Reset state
+      setFile(null);
+      setStudentName('');
+    } catch (error) {
+      console.error('Upload error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to upload file');
+      
+      toast({
+        title: 'Upload failed',
+        description: error instanceof Error ? error.message : 'Failed to upload file',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -1090,7 +1291,7 @@ const SubmissionsPage: React.FC = () => {
             </Button>
             <Button 
               colorScheme="blue" 
-              onClick={handleUpload}
+              onClick={handleSubmissionUpload}
               isLoading={isUploading}
               loadingText="Uploading"
               isDisabled={!file || !studentName.trim() || isUploading}
@@ -1309,7 +1510,7 @@ const SubmissionsPage: React.FC = () => {
             </Button>
             <Button 
               colorScheme="blue" 
-              onClick={handleUpload}
+              onClick={handleRubricUpload}
               isLoading={isUploading}
               loadingText="Uploading"
               isDisabled={!file || isUploading}
