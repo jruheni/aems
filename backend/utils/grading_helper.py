@@ -7,11 +7,24 @@ Includes various grading standards and text processing utilities
 import re
 import os
 import logging
+import requests
+import json
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
 from mistralai.exceptions import MistralException
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Get Mistral API key from environment variables
+MISTRAL_API_KEY = os.environ.get('MISTRAL_API_KEY')
+if not MISTRAL_API_KEY:
+    logger.warning("MISTRAL_API_KEY not found in environment variables")
 
 def get_mistral_api_key():
     """
@@ -151,76 +164,156 @@ def get_strictness_description(level):
 
 def grade_with_mistral(answer_text, rubric_text, strictness_level=2):
     """
-    Grade an answer using Mistral AI with a strictness rubric
+    Grade a submission using Mistral AI.
+    
+    Args:
+        answer_text (str): The student's answer text
+        rubric_text (str): The rubric text
+        strictness_level (int): Strictness level (1-4)
+    
+    Returns:
+        dict: Grading result with score, feedback, and total_points
     """
+    if not MISTRAL_API_KEY:
+        logger.error("Mistral API key not found")
+        raise ValueError("Mistral API key not found. Please set the MISTRAL_API_KEY environment variable.")
+    
+    logger.info(f"Grading submission with strictness level {strictness_level}")
+    logger.info(f"Answer text length: {len(answer_text)}")
+    logger.info(f"Answer text preview: {answer_text[:100]}...")
+    logger.info(f"Rubric text length: {len(rubric_text)}")
+    
+    # Check if the answer text appears to be OCR output
+    ocr_keywords = ["ocr", "image file", "processing required", "extract text"]
+    if any(keyword in answer_text.lower() for keyword in ocr_keywords) and len(answer_text.strip()) < 100:
+        logger.error("Answer text appears to be OCR placeholder, not actual content")
+        logger.error(f"Answer text: {answer_text}")
+        raise ValueError("The provided answer requires OCR processing to convert the image into text. Please provide the text version of the student's answer for accurate grading.")
+    
     try:
-        client = create_mistral_client()
-        total_points = extract_total_points(answer_text)
-        strictness = get_strictness_description(strictness_level)
+        # Prepare the prompt for Mistral
+        strictness_descriptions = {
+            1: "Focus primarily on content and understanding, be lenient with formatting and minor errors.",
+            2: "Balance content understanding with proper formatting and accuracy.",
+            3: "Be strict with both content understanding and proper formatting.",
+            4: "Apply academic-level rigor, requiring precise answers and proper formatting."
+        }
+        
+        strictness_desc = strictness_descriptions.get(strictness_level, strictness_descriptions[2])
+        
+        # Add a note about OCR text if it appears to be OCR-processed
+        ocr_note = ""
+        if any(marker in answer_text.lower() for marker in ["ocr", "scan", "image", "recognition"]):
+            ocr_note = "Note: The student's answer was extracted from an image using OCR, so there might be some formatting or character recognition errors. Please be understanding of these potential OCR errors when grading."
+        
+        prompt = f"""You are an expert grader for academic exams. Your task is to grade a student's answer based on a provided rubric.
 
-        system_prompt = f"""You are an expert exam grader using the {strictness['name']} grading standard. Your task is to:
-1. Grade the student's answer based on the provided rubric
-2. Provide a score out of {total_points} points
-3. Give detailed feedback explaining the grading
-4. Be objective and consistent in your grading
-5. Format your response as JSON with 'score', 'total_points', and 'feedback' fields
-
-Grading Standard: {strictness['description']}
-
-IMPORTANT GRADING RULES:
-{chr(10).join(f"- {rule}" for rule in strictness['rules'])}
-
-Additional Notes:
-- For Content Focus, give full points if the student demonstrates understanding
-- Only Academic level should penalize spelling/grammar
-- Be willing to give full marks where deserved
-- Don’t be unnecessarily harsh"""
-
-        user_prompt = f"""Please grade this answer based on the rubric provided:
-
-Rubric:
+RUBRIC:
 {rubric_text}
 
-Student's Answer:
+STUDENT ANSWER:
 {answer_text}
 
-Remember to follow the {strictness['name']} grading standard.
+GRADING INSTRUCTIONS:
+1. Evaluate the student's answer against the rubric criteria
+2. Assign a score out of 10 points
+3. Provide specific feedback explaining the score
+4. Strictness level: {strictness_level} - {strictness_desc}
+{ocr_note}
 
-Provide your response in this format:
-{{
-    "score": <numeric_score>,
-    "total_points": {total_points},
-    "feedback": "<detailed_feedback>"
-}}"""
+Respond with a JSON object containing:
+1. "score": A number between 0 and 10
+2. "feedback": Detailed feedback explaining the score
+3. "total_points": 10
 
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_prompt)
-        ]
-
-        response = client.chat(
-            model="mistral-medium",
-            messages=messages,
-            temperature=0.1,
-            max_tokens=1000
-        )
-
-        response_text = response.choices[0].message.content
-
-        if not response_text or not any(k in response_text.lower() for k in ['score', 'feedback']):
-            raise ValueError("Invalid response format from Mistral")
-
-        return {
-            'score': extract_score(response_text),
-            'total_points': total_points,
-            'feedback': extract_feedback(response_text),
-            'grading_standard': strictness['name']
+JSON RESPONSE:"""
+        
+        # Call Mistral API
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {MISTRAL_API_KEY}"
         }
-
-    except MistralException as e:
-        raise Exception(f"Mistral API error: {str(e)}")
+        
+        payload = {
+            "model": "mistral-large-latest",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1000
+        }
+        
+        logger.info("Sending request to Mistral API")
+        response = requests.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30  # 30 second timeout
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Mistral API error: {response.status_code} - {response.text}")
+            raise Exception(f"Mistral API error: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        
+        logger.info(f"Received response from Mistral: {content[:100]}...")
+        
+        # Parse the JSON response
+        try:
+            # First try direct JSON parsing
+            grading_result = json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from the text if it's not pure JSON
+            logger.warning("Failed to parse direct JSON, trying to extract JSON from text")
+            json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if json_match:
+                try:
+                    grading_result = json.loads(json_match.group(1))
+                    logger.info("Successfully extracted JSON from text")
+                except Exception as e:
+                    logger.error(f"Failed to parse extracted JSON: {e}")
+                    logger.error(f"Extracted content: {json_match.group(1)}")
+                    raise ValueError(f"Invalid JSON response from Mistral API: {e}")
+            else:
+                logger.error(f"Failed to extract JSON from response: {content}")
+                # As a fallback, create a basic result
+                logger.warning("Creating fallback grading result")
+                grading_result = {
+                    "score": 5,
+                    "feedback": f"Failed to parse AI response. Here's the raw response: {content}",
+                    "total_points": 10
+                }
+        
+        # Validate the result
+        if "score" not in grading_result:
+            logger.error(f"Missing score in result: {grading_result}")
+            grading_result["score"] = 5
+            
+        if "feedback" not in grading_result:
+            logger.error(f"Missing feedback in result: {grading_result}")
+            grading_result["feedback"] = "No feedback provided by the grading system."
+        
+        # Ensure score is a number between 0 and 10
+        try:
+            score = float(grading_result["score"])
+            score = max(0, min(10, score))
+            grading_result["score"] = score
+        except (ValueError, TypeError):
+            logger.error(f"Invalid score value: {grading_result.get('score')}")
+            grading_result["score"] = 5
+        
+        # Ensure total_points is 10
+        grading_result["total_points"] = 10
+        
+        logger.info(f"Final grading result: {grading_result}")
+        return grading_result
+        
     except Exception as e:
-        raise Exception(f"Grading error: {str(e)}")
+        logger.error(f"Error in grading with Mistral: {str(e)}", exc_info=True)
+        raise
 
 def extract_score(response_text):
     """
