@@ -9,7 +9,8 @@ import {
   AlertDialog, AlertDialogBody, AlertDialogFooter, AlertDialogHeader,
   AlertDialogContent, AlertDialogOverlay, HStack, Divider,
   Stat, StatLabel, StatNumber, StatHelpText, StatArrow, StatGroup,
-  Tabs, TabList, TabPanels, Tab, TabPanel, Icon, Card, CardHeader, CardBody, CardFooter
+  Tabs, TabList, TabPanels, Tab, TabPanel, Icon, Card, CardHeader, CardBody, CardFooter,
+  FormHelperText
 } from '@chakra-ui/react';
 import { DeleteIcon, ViewIcon } from '@chakra-ui/icons';
 import { 
@@ -29,19 +30,37 @@ import {
   Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line
 } from 'recharts';
 import { FaChartBar, FaChartPie, FaUserGraduate, FaCheck, FaTimes, FaExclamationTriangle, FaUpload, FaEdit, FaFileAlt, FaTrash, FaArrowLeft } from 'react-icons/fa';
+import Header from '../components/Header';
+// import { Submission } from '../types/submission';
+
+interface SubmissionData {
+  id: string;
+  student_name: string;
+  student_id?: string;
+  script_file_url: string;
+  script_file_name: string;
+  created_at: string;
+  score: number | null;
+  total_points: number | null;
+  extracted_text_script?: string;
+  image_url?: string;
+  feedback?: string;
+  // other properties...
+}
 
 const SubmissionsPage: React.FC = () => {
   const router = useRouter();
   const { examId, examName } = router.query;
   const [file, setFile] = useState<File | null>(null);
   const [studentName, setStudentName] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [submissions, setSubmissions] = useState<SubmissionData[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
-  const [submissionToDelete, setSubmissionToDelete] = useState<Submission | null>(null);
+  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionData | null>(null);
+  const [submissionToDelete, setSubmissionToDelete] = useState<SubmissionData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [rubricContent, setRubricContent] = useState<string | null>(null);
   const [rubricImageUrl, setRubricImageUrl] = useState<string | null>(null);
@@ -387,19 +406,36 @@ const SubmissionsPage: React.FC = () => {
   };
 
   const handleSubmissionUpload = async () => {
-    if (!file || !studentName.trim()) {
-      setError('Please provide both student name and file');
+    if (!file || !studentName.trim() || !studentId) {
+      setError('Please provide all required fields');
+      return;
+    }
+    
+    // Validate student ID format (6 digits)
+    if (!/^\d{6}$/.test(studentId)) {
+      setError('Student ID must be a 6-digit number');
       return;
     }
 
     setIsUploading(true);
+    setError('');
     setUploadProgress(0);
-
+    
     try {
-      // Create a unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${examId}_${studentName.replace(/\s+/g, '_')}_${Date.now()}.${fileExt}`;
-      const filePath = fileName;
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('student_name', studentName);
+      formData.append('student_id', studentId);
+      
+      if (examId) {
+        // If examId is potentially an array, take the first value
+        const examIdValue = Array.isArray(examId) ? examId[0] : examId;
+        formData.append('exam_id', String(examIdValue));
+      }
+      
+      // Upload file to storage
+      const fileName = `${Date.now()}_${file.name}`;
+      const filePath = `submissions/${fileName}`;
       
       // Use the existing 'submissions' bucket
       const bucketName = 'submissions';
@@ -435,12 +471,13 @@ const SubmissionsPage: React.FC = () => {
         extractedText = await file.text();
       }
 
-      // Insert into submissions table without updated_at
+      // Insert into submissions table - ADD student_id HERE
       const { error: insertError } = await supabase
         .from('submissions')
         .insert({
           exam_id: examId,
           student_name: studentName,
+          student_id: studentId,
           script_file_name: file.name,
           script_file_url: publicUrl,
           extracted_text_script: extractedText,
@@ -468,24 +505,16 @@ const SubmissionsPage: React.FC = () => {
       // Reset state
       setFile(null);
       setStudentName('');
+      setStudentId(''); // Reset student ID
     } catch (error) {
-      console.error('Upload error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to upload file');
-      
-      toast({
-        title: 'Upload failed',
-        description: error instanceof Error ? error.message : 'Failed to upload file',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      console.error('Error uploading submission:', error);
+      setError('Failed to upload submission. Please try again.');
     } finally {
       setIsUploading(false);
-      setUploadProgress(0);
     }
   };
 
-  const handleViewSubmission = async (submission: Submission) => {
+  const handleViewSubmission = async (submission: SubmissionData) => {
     console.log('Viewing submission:', submission);
     setSelectedSubmission(submission);
     onScoreOpen();
@@ -701,7 +730,7 @@ const SubmissionsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteClick = (submission: Submission) => {
+  const handleDeleteClick = (submission: SubmissionData) => {
     setSubmissionToDelete(submission);
     onDeleteOpen();
   };
@@ -743,7 +772,7 @@ const SubmissionsPage: React.FC = () => {
     }
   };
 
-  const calculateAnalytics = (submissions: Submission[]) => {
+  const calculateAnalytics = (submissions: SubmissionData[]) => {
     if (!submissions || submissions.length === 0) {
       return;
     }
@@ -1125,7 +1154,12 @@ const SubmissionsPage: React.FC = () => {
 
   return (
     <Box p={5}>
-      <Container maxW="container.xl">
+      <Header 
+        currentPage="submissions" 
+        username={localStorage.getItem('username') || ''}
+        userRole="teacher"
+      />
+      <Container maxW="container.xl" mt="16">
         <Box mb={6}>
           <Flex justify="space-between" align="center" mb={4}>
             <HStack spacing={4}>
@@ -1178,6 +1212,7 @@ const SubmissionsPage: React.FC = () => {
             <Thead>
               <Tr>
                 <Th>Student</Th>
+                <Th>Student ID</Th>
                 <Th>File</Th>
                 <Th>Submitted</Th>
                 <Th>Score</Th>
@@ -1187,7 +1222,7 @@ const SubmissionsPage: React.FC = () => {
             <Tbody>
               {submissions.length === 0 ? (
                 <Tr>
-                  <Td colSpan={5} textAlign="center" py={4}>
+                  <Td colSpan={6} textAlign="center" py={4}>
                     No submissions yet
                   </Td>
                 </Tr>
@@ -1195,6 +1230,7 @@ const SubmissionsPage: React.FC = () => {
                 submissions.map(submission => (
                   <Tr key={submission.id}>
                     <Td>{submission.student_name}</Td>
+                    <Td>{submission.student_id || 'N/A'}</Td>
                     <Td>{submission.script_file_name}</Td>
                     <Td>{submission.created_at ? new Date(submission.created_at).toLocaleString() : 'N/A'}</Td>
                     <Td>
@@ -1257,6 +1293,21 @@ const SubmissionsPage: React.FC = () => {
               </FormControl>
               
               <FormControl isRequired>
+                <FormLabel>Student ID</FormLabel>
+                <Input 
+                  type="text" 
+                  placeholder="Enter 6-digit student ID" 
+                  value={studentId}
+                  onChange={(e) => setStudentId(e.target.value)}
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                />
+                <FormHelperText>
+                  Enter the 6-digit student ID associated with this exam script
+                </FormHelperText>
+              </FormControl>
+              
+              <FormControl isRequired>
                 <FormLabel>Submission File</FormLabel>
                 <Input
                   type="file"
@@ -1294,7 +1345,7 @@ const SubmissionsPage: React.FC = () => {
               onClick={handleSubmissionUpload}
               isLoading={isUploading}
               loadingText="Uploading"
-              isDisabled={!file || !studentName.trim() || isUploading}
+              isDisabled={!file || !studentName.trim() || !studentId || isUploading}
             >
               Upload
             </Button>
