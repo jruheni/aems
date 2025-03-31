@@ -5,9 +5,10 @@ import {
   CardHeader, CardBody, CardFooter, Stat, StatLabel, StatNumber, 
   StatHelpText, StatArrow, StatGroup, Progress, useColorModeValue,
   Table, Thead, Tbody, Tr, Th, Td, TableContainer, IconButton,
+  Icon
 } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
-import { FaArrowLeft, FaDownload } from 'react-icons/fa';
+import { FaArrowLeft, FaDownload, FaChartLine, FaGraduationCap, FaTrophy, FaChartBar, FaBookReader } from 'react-icons/fa';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
   Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, 
@@ -17,6 +18,9 @@ import { supabase } from '../src/services/supabaseClient';
 import Head from 'next/head';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { motion } from 'framer-motion';
+import { keyframes } from '@emotion/react';
+import { customColors, getGradients } from '../src/theme/colors';
 
 // Add proper types for the submissions and analytics
 interface Exam {
@@ -74,6 +78,21 @@ interface Analytics {
   strengthsWeaknesses: SkillAssessment[];
 }
 
+// Update the animations definition
+const fadeIn = keyframes`
+  from { opacity: 0; }
+  to { opacity: 1; }
+`;
+
+const slideIn = keyframes`
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+`;
+
+// Update the animations to use Framer Motion's transition types
+const MotionSimpleGrid = motion(SimpleGrid);
+const MotionFlex = motion(Flex);
+
 const StudentReport = () => {
   const router = useRouter();
   const toast = useToast();
@@ -99,16 +118,18 @@ const StudentReport = () => {
   const borderColor = useColorModeValue('gray.200', 'gray.600');
   const textColor = useColorModeValue('gray.800', 'white');
   const subTextColor = useColorModeValue('gray.600', 'gray.300');
-  const chartColors = {
-    primary: useColorModeValue('#3182CE', '#63B3ED'),
-    secondary: useColorModeValue('#38A169', '#68D391'),
-    accent: useColorModeValue('#DD6B20', '#F6AD55'),
-    error: useColorModeValue('#E53E3E', '#FC8181'),
-    grid: useColorModeValue('#E2E8F0', '#2D3748')
-  };
   
   const [userRole, setUserRole] = useState<'teacher' | 'student'>('student');
   const [autoRefresh, setAutoRefresh] = useState<NodeJS.Timeout | null>(null);
+  
+  // Move chartColors here, inside the component
+  const chartColors = {
+    primary: customColors.orange,
+    secondary: customColors.coral,
+    accent: customColors.pink,
+    error: '#E53E3E',
+    grid: useColorModeValue('#E2E8F0', '#2D3748')
+  };
   
   useEffect(() => {
     // Check if the user is logged in and get their role
@@ -502,19 +523,35 @@ const StudentReport = () => {
         <title>{studentName} - Performance Report | AEMS</title>
       </Head>
       
+      <Box
+        position="absolute"
+        top={0}
+        left={0}
+        right={0}
+        height="300px"
+        bgImage={getGradients('22')}
+        opacity={0.8}
+        zIndex={-1}
+      />
+      
       <Container maxW="container.xl" py={8}>
-        <HStack mb={6} spacing={4}>
-          <IconButton
-            aria-label="Back to dashboard"
-            icon={<FaArrowLeft />}
-            onClick={() => router.push(userRole === 'student' ? '/student-dashboard' : '/dashboard')}
-          />
-          <Heading size="lg">
-            {userRole === 'student' ? 'Your Performance Report' : 'Student Performance Report'}
-          </Heading>
-        </HStack>
+        <motion.div
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <HStack mb={6} spacing={4}>
+            <IconButton
+              aria-label="Back to dashboard"
+              icon={<FaArrowLeft />}
+              onClick={() => router.push(userRole === 'student' ? '/student-dashboard' : '/dashboard')}
+            />
+            <Heading size="lg">
+              {userRole === 'student' ? 'Your Performance Report' : 'Student Performance Report'}
+            </Heading>
+          </HStack>
+        </motion.div>
         
-        {/* Add a real-time update indicator for students */}
         {userRole === 'student' && (
           <Text color="gray.500" mb={4} fontSize="sm">
             This report updates automatically as new grades become available
@@ -522,11 +559,24 @@ const StudentReport = () => {
         )}
         
         {isLoading ? (
-          <Flex justify="center" align="center" minH="60vh">
-            <Spinner size="xl" thickness="4px" color="blue.500" />
+          <Flex justify="center" align="center" minH="60vh" direction="column">
+            <Box
+              as={motion.div}
+              animation={`${fadeIn} 1s ease-in-out infinite alternate`}
+            >
+              <Spinner size="xl" thickness="4px" color="blue.500" />
+            </Box>
+            <Text mt={4} color="gray.500">Loading your performance data...</Text>
           </Flex>
         ) : submissions.length === 0 ? (
           <Box textAlign="center" p={10}>
+            <Image
+              src="/images/no-data.svg"
+              alt="No data"
+              maxW="200px"
+              mx="auto"
+              mb={6}
+            />
             <Heading size="md" mb={4}>No data available</Heading>
             <Text>No submissions found for {studentName}</Text>
             <Button mt={6} onClick={() => router.back()}>
@@ -535,382 +585,505 @@ const StudentReport = () => {
           </Box>
         ) : (
           <>
-            <HStack spacing={4} mb={6} justify="flex-end">
-              <Button 
-                leftIcon={<FaDownload />} 
-                colorScheme="blue" 
-                variant="outline"
-                onClick={generatePDF}
-              >
-                Download PDF
-              </Button>
-            </HStack>
-            
-            <Box 
-              ref={reportRef} 
-              bg={cardBg} 
-              p={8} 
-              borderRadius="lg" 
-              boxShadow="md"
-              border="1px"
-              borderColor={borderColor}
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.5 }}
             >
-              {/* Report Header */}
-              <Flex 
-                direction={{ base: "column", md: "row" }} 
-                justify="space-between" 
-                align={{ base: "start", md: "center" }}
-                mb={8}
-                pb={4}
-                borderBottom="1px"
-                borderColor={borderColor}
+              <HStack spacing={4} mb={6} justify="flex-end">
+                <Button 
+                  leftIcon={<FaDownload />} 
+                  bg={customColors.orange}
+                  color="white"
+                  _hover={{ bg: customColors.coral }}
+                  variant="solid"
+                  onClick={generatePDF}
+                >
+                  Download PDF
+                </Button>
+              </HStack>
+              
+              <Box
+                ref={reportRef}
+                bg={cardBg}
+                p={8}
+                borderRadius="lg"
+                boxShadow="lg"
+                position="relative"
+                overflow="hidden"
+                _before={{
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '3px',
+                  bgGradient: `linear(to-r, ${customColors.orange}, ${customColors.coral}, ${customColors.pink})`
+                }}
               >
-                <Box>
-                  <Heading size="xl" mb={2}>{studentName}</Heading>
-                  <Text color={subTextColor} fontSize="lg">
-                    Performance Report • {new Date().toLocaleDateString()}
-                  </Text>
-                </Box>
-                <HStack spacing={6} mt={{ base: 4, md: 0 }}>
-                  <Stat>
-                    <StatLabel>Exams</StatLabel>
-                    <StatNumber>{analytics.totalExams}</StatNumber>
-                  </Stat>
-                  <Stat>
-                    <StatLabel>Avg. Score</StatLabel>
-                    <StatNumber>{analytics.averageScore.toFixed(1)}%</StatNumber>
-                  </Stat>
-                </HStack>
-              </Flex>
-              
-              {/* Performance Overview */}
-              <SimpleGrid columns={{ base: 1, md: 4 }} spacing={6} mb={8}>
-                <Card boxShadow="sm">
-                  <CardBody>
+                <Flex 
+                  direction={{ base: "column", md: "row" }} 
+                  justify="space-between" 
+                  align={{ base: "start", md: "center" }}
+                  mb={8}
+                  pb={4}
+                  borderBottom="1px"
+                  borderColor={borderColor}
+                  position="relative"
+                  zIndex={1}
+                >
+                  <HStack spacing={4}>
+                    <Icon as={FaGraduationCap} w={8} h={8} color="blue.500" />
+                    <Box>
+                      <Heading size="xl" mb={2}>{studentName}</Heading>
+                      <Text color={subTextColor} fontSize="lg">
+                        Performance Report • {new Date().toLocaleDateString()}
+                      </Text>
+                    </Box>
+                  </HStack>
+                  <HStack spacing={6} mt={{ base: 4, md: 0 }}>
                     <Stat>
-                      <StatLabel>Average Score</StatLabel>
-                      <StatNumber>{analytics.averageScore.toFixed(1)}%</StatNumber>
-                      <StatHelpText>
-                        <StatArrow 
-                          type={analytics.averageScore >= 60 ? 'increase' : 'decrease'} 
-                        />
-                        {analytics.averageScore >= 60 ? 'Above passing' : 'Below passing'}
-                      </StatHelpText>
+                      <StatLabel>Exams</StatLabel>
+                      <StatNumber>{analytics.totalExams}</StatNumber>
                     </Stat>
-                  </CardBody>
-                </Card>
+                    <Stat>
+                      <StatLabel>Avg. Score</StatLabel>
+                      <StatNumber color={customColors.orange}>{analytics.averageScore.toFixed(1)}%</StatNumber>
+                    </Stat>
+                  </HStack>
+                </Flex>
                 
-                <Card boxShadow="sm">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>Highest Score</StatLabel>
-                      <StatNumber>{analytics.highestScore.toFixed(1)}%</StatNumber>
-                      <StatHelpText>
-                        {analytics.examPerformance.find(e => e.percentage === analytics.highestScore)?.examName || 'N/A'}
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
-                
-                <Card boxShadow="sm">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>Lowest Score</StatLabel>
-                      <StatNumber>{analytics.lowestScore.toFixed(1)}%</StatNumber>
-                      <StatHelpText>
-                        {analytics.examPerformance.find(e => e.percentage === analytics.lowestScore)?.examName || 'N/A'}
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
-                
-                <Card boxShadow="sm">
-                  <CardBody>
-                    <Stat>
-                      <StatLabel>Performance Trend</StatLabel>
-                      <StatNumber>
-                        {analytics.improvementTrend.length >= 2 ? (
-                          analytics.improvementTrend[analytics.improvementTrend.length - 1].percentage >
-                          analytics.improvementTrend[0].percentage ? (
-                            <Badge colorScheme="green" fontSize="md" px={2} py={1}>
-                              Improving
-                            </Badge>
-                          ) : (
-                            <Badge colorScheme="orange" fontSize="md" px={2} py={1}>
-                              Variable
-                            </Badge>
-                          )
-                        ) : (
-                          <Badge colorScheme="blue" fontSize="md" px={2} py={1}>
-                            Baseline
-                          </Badge>
-                        )}
-                      </StatNumber>
-                      <StatHelpText>
-                        Based on {analytics.improvementTrend.length} exams
-                      </StatHelpText>
-                    </Stat>
-                  </CardBody>
-                </Card>
-              </SimpleGrid>
-              
-              {/* Performance Trend Chart */}
-              <Card boxShadow="md" mb={8}>
-                <CardHeader pb={0}>
-                  <Heading size="md">Performance Trend</Heading>
-                  <Text color={subTextColor}>Score progression over time</Text>
-                </CardHeader>
-                <CardBody>
-                  <Box h="300px">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={analytics.improvementTrend}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
-                        <XAxis 
-                          dataKey="examName" 
-                          tick={{ fill: textColor }} 
-                          axisLine={{ stroke: borderColor }}
-                        />
-                        <YAxis 
-                          domain={[0, 100]} 
-                          tick={{ fill: textColor }} 
-                          axisLine={{ stroke: borderColor }}
-                          label={{ 
-                            value: 'Score (%)', 
-                            angle: -90, 
-                            position: 'insideLeft',
-                            fill: textColor
-                          }}
-                        />
-                        <RechartsTooltip 
-                          formatter={(value: any) => [`${typeof value === 'number' ? value.toFixed(1) : value}%`, 'Score']}
-                          labelFormatter={(label: string) => `Exam: ${label}`}
-                          contentStyle={{ 
-                            backgroundColor: cardBg, 
-                            border: `1px solid ${borderColor}`,
-                            color: textColor
-                          }}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="percentage" 
-                          stroke={chartColors.primary} 
-                          strokeWidth={2}
-                          dot={{ fill: chartColors.primary, r: 6 }}
-                          activeDot={{ r: 8 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </Box>
-                </CardBody>
-              </Card>
-              
-              {/* Exam Performance */}
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={8} mb={8}>
-                {/* Score Distribution */}
-                <Card boxShadow="md">
-                  <CardHeader pb={0}>
-                    <Heading size="md">Score Distribution</Heading>
-                    <Text color={subTextColor}>Performance by score range</Text>
-                  </CardHeader>
-                  <CardBody>
-                    <Box h="300px">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={analytics.scoreDistribution}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            outerRadius={100}
-                            fill="#8884d8"
-                            dataKey="count"
-                            nameKey="range"
-                            label={({ name, percent }) => 
-                              percent > 0 ? `${name}: ${(percent * 100).toFixed(0)}%` : ''}
-                          >
-                            {analytics.scoreDistribution.map((entry, index) => (
-                              <Cell 
-                                key={`cell-${index}`} 
-                                fill={
-                                  index === 0 ? chartColors.error : 
-                                  index === 1 ? chartColors.accent : 
-                                  index === 2 ? chartColors.secondary : 
-                                  chartColors.primary
+                <MotionSimpleGrid 
+                  columns={{ base: 1, md: 4 }} 
+                  spacing={6} 
+                  mb={8}
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ 
+                    type: "spring",
+                    duration: 0.5,
+                    delay: 0.2 
+                  }}
+                >
+                  <Card 
+                    boxShadow="sm" 
+                    _hover={{ 
+                      transform: 'translateY(-2px)', 
+                      boxShadow: 'md',
+                      borderColor: customColors.orange 
+                    }}
+                    transition="all 0.2s"
+                  >
+                    <CardBody>
+                      <HStack spacing={4}>
+                        <Icon as={FaChartLine} w={6} h={6} color={customColors.orange} />
+                        <Stat>
+                          <StatLabel>Average Score</StatLabel>
+                          <StatNumber color={customColors.orange}>{analytics.averageScore.toFixed(1)}%</StatNumber>
+                          <StatHelpText>
+                            <StatArrow 
+                              type={analytics.averageScore >= 60 ? 'increase' : 'decrease'} 
+                            />
+                            {analytics.averageScore >= 60 ? 'Above passing' : 'Below passing'}
+                          </StatHelpText>
+                        </Stat>
+                      </HStack>
+                    </CardBody>
+                  </Card>
+                  
+                  <Card 
+                    boxShadow="sm" 
+                    _hover={{ 
+                      transform: 'translateY(-2px)', 
+                      boxShadow: 'md',
+                      borderColor: customColors.orange 
+                    }}
+                    transition="all 0.2s"
+                  >
+                    <CardBody>
+                      <HStack spacing={4}>
+                        <Icon as={FaTrophy} w={6} h={6} color="blue.500" />
+                        <Stat>
+                          <StatLabel>Highest Score</StatLabel>
+                          <StatNumber>{analytics.highestScore.toFixed(1)}%</StatNumber>
+                          <StatHelpText>
+                            {analytics.examPerformance.find(e => e.percentage === analytics.highestScore)?.examName || 'N/A'}
+                          </StatHelpText>
+                        </Stat>
+                      </HStack>
+                    </CardBody>
+                  </Card>
+                  
+                  <Card 
+                    boxShadow="sm" 
+                    _hover={{ 
+                      transform: 'translateY(-2px)', 
+                      boxShadow: 'md',
+                      borderColor: customColors.orange 
+                    }}
+                    transition="all 0.2s"
+                  >
+                    <CardBody>
+                      <HStack spacing={4}>
+                        <Icon as={FaChartBar} w={6} h={6} color="blue.500" />
+                        <Stat>
+                          <StatLabel>Lowest Score</StatLabel>
+                          <StatNumber>{analytics.lowestScore.toFixed(1)}%</StatNumber>
+                          <StatHelpText>
+                            {analytics.examPerformance.find(e => e.percentage === analytics.lowestScore)?.examName || 'N/A'}
+                          </StatHelpText>
+                        </Stat>
+                      </HStack>
+                    </CardBody>
+                  </Card>
+                  
+                  <Card 
+                    boxShadow="sm" 
+                    _hover={{ 
+                      transform: 'translateY(-2px)', 
+                      boxShadow: 'md',
+                      borderColor: customColors.orange 
+                    }}
+                    transition="all 0.2s"
+                  >
+                    <CardBody>
+                      <HStack spacing={4}>
+                        <Icon as={FaChartBar} w={6} h={6} color="blue.500" />
+                        <Stat>
+                          <StatLabel>Performance Trend</StatLabel>
+                          <StatNumber>
+                            {analytics.improvementTrend.length >= 2 ? (
+                              <Badge 
+                                colorScheme={
+                                  analytics.improvementTrend[analytics.improvementTrend.length - 1].percentage >
+                                  analytics.improvementTrend[0].percentage ? "orange" : "pink"
                                 } 
-                              />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip 
-                            formatter={(value: any) => [`${value} exams`, 'Count']}
-                            contentStyle={{ 
-                              backgroundColor: cardBg, 
-                              border: `1px solid ${borderColor}`,
-                              color: textColor
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </Box>
+                                bg={
+                                  analytics.improvementTrend[analytics.improvementTrend.length - 1].percentage >
+                                  analytics.improvementTrend[0].percentage ? customColors.orange : customColors.pink
+                                }
+                                color="white"
+                                fontSize="md" 
+                                px={2} 
+                                py={1}
+                              >
+                                {analytics.improvementTrend[analytics.improvementTrend.length - 1].percentage >
+                                  analytics.improvementTrend[0].percentage ? 'Improving' : 'Variable'}
+                              </Badge>
+                            ) : (
+                              <Badge colorScheme="blue" fontSize="md" px={2} py={1}>
+                                Baseline
+                              </Badge>
+                            )}
+                          </StatNumber>
+                          <StatHelpText>
+                            Based on {analytics.improvementTrend.length} exams
+                          </StatHelpText>
+                        </Stat>
+                      </HStack>
+                    </CardBody>
+                  </Card>
+                </MotionSimpleGrid>
+                
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ duration: 0.5, delay: 0.4 }}
+                >
+                  <Card boxShadow="md" mb={8}>
+                    <CardHeader pb={0}>
+                      <HStack spacing={4}>
+                        <Icon as={FaChartBar} w={6} h={6} color="blue.500" />
+                        <Box>
+                          <Heading size="md">Performance Trend</Heading>
+                          <Text color={subTextColor}>Score progression over time</Text>
+                        </Box>
+                      </HStack>
+                    </CardHeader>
+                    <CardBody>
+                      <Box h="300px">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={analytics.improvementTrend}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
+                            <XAxis 
+                              dataKey="examName" 
+                              tick={{ fill: textColor }} 
+                              axisLine={{ stroke: borderColor }}
+                            />
+                            <YAxis 
+                              domain={[0, 100]} 
+                              tick={{ fill: textColor }} 
+                              axisLine={{ stroke: borderColor }}
+                              label={{ 
+                                value: 'Score (%)', 
+                                angle: -90, 
+                                position: 'insideLeft',
+                                fill: textColor
+                              }}
+                            />
+                            <RechartsTooltip 
+                              formatter={(value: any) => [`${typeof value === 'number' ? value.toFixed(1) : value}%`, 'Score']}
+                              labelFormatter={(label: string) => `Exam: ${label}`}
+                              contentStyle={{ 
+                                backgroundColor: cardBg, 
+                                border: `1px solid ${borderColor}`,
+                                color: textColor
+                              }}
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="percentage" 
+                              stroke={customColors.orange} 
+                              strokeWidth={2}
+                              dot={{ fill: customColors.coral, r: 6 }}
+                              activeDot={{ r: 8, fill: customColors.pink }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </Box>
+                    </CardBody>
+                  </Card>
+                </motion.div>
+                
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={8} mb={8}>
+                  <Card boxShadow="md">
+                    <CardHeader pb={0}>
+                      <Heading size="md">Score Distribution</Heading>
+                      <Text color={subTextColor}>Performance by score range</Text>
+                    </CardHeader>
+                    <CardBody>
+                      <Box h="300px">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={analytics.scoreDistribution}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              outerRadius={100}
+                              fill="#8884d8"
+                              dataKey="count"
+                              nameKey="range"
+                              label={({ name, percent }) => 
+                                percent > 0 ? `${name}: ${(percent * 100).toFixed(0)}%` : ''}
+                            >
+                              {analytics.scoreDistribution.map((entry, index) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={
+                                    index === 0 ? customColors.pink : 
+                                    index === 1 ? customColors.coral : 
+                                    index === 2 ? customColors.orange : 
+                                    '#2196F3'
+                                  } 
+                                />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip 
+                              formatter={(value: any) => [`${value} exams`, 'Count']}
+                              contentStyle={{ 
+                                backgroundColor: cardBg, 
+                                border: `1px solid ${borderColor}`,
+                                color: textColor
+                              }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </Box>
+                    </CardBody>
+                  </Card>
+                  
+                  <Card boxShadow="md">
+                    <CardHeader pb={0}>
+                      <Heading size="md">Skills Assessment</Heading>
+                      <Text color={subTextColor}>Strengths and areas for improvement</Text>
+                    </CardHeader>
+                    <CardBody>
+                      <Box h="300px">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={analytics.strengthsWeaknesses}>
+                            <PolarGrid stroke={chartColors.grid} />
+                            <PolarAngleAxis dataKey="name" tick={{ fill: textColor }} />
+                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: textColor }} />
+                            <Radar
+                              name="Skills"
+                              dataKey="score"
+                              stroke={customColors.orange}
+                              fill={customColors.coral}
+                              fillOpacity={0.4}
+                            />
+                            <RechartsTooltip 
+                              formatter={(value: any) => [`${value.toFixed(1)}%`, 'Proficiency']}
+                              contentStyle={{ 
+                                backgroundColor: cardBg, 
+                                border: `1px solid ${borderColor}`,
+                                color: textColor
+                              }}
+                            />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                      </Box>
+                    </CardBody>
+                  </Card>
+                </SimpleGrid>
+                
+                <Card boxShadow="md" mb={8}>
+                  <CardHeader>
+                    <Heading size="md">Exam Performance Details</Heading>
+                  </CardHeader>
+                  <CardBody>
+                    <TableContainer>
+                      <Table variant="simple">
+                        <Thead>
+                          <Tr>
+                            <Th>Exam</Th>
+                            <Th>Date</Th>
+                            <Th isNumeric>Score</Th>
+                            <Th isNumeric>Percentage</Th>
+                            <Th>Performance</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {submissions
+                            .filter(s => s.score !== null)
+                            .map((submission) => {
+                              const percentage = ((submission.score ?? 0) / 10) * 100;
+                              let performanceColor;
+                              if (percentage >= 80) performanceColor = "green";
+                              else if (percentage >= 60) performanceColor = "blue";
+                              else if (percentage >= 40) performanceColor = "orange";
+                              else performanceColor = "red";
+                              
+                              return (
+                                <Tr key={submission.id}>
+                                  <Td fontWeight="medium">{submission.exams.title}</Td>
+                                  <Td>{new Date(submission.created_at).toLocaleDateString()}</Td>
+                                  <Td isNumeric>{submission.score} / 10</Td>
+                                  <Td isNumeric>{percentage.toFixed(1)}%</Td>
+                                  <Td>
+                                    <Badge 
+                                      colorScheme={
+                                        percentage >= 80 ? 'green' : 
+                                        percentage >= 60 ? 'blue' : 
+                                        percentage >= 40 ? 'orange' : 
+                                        'red'
+                                      }
+                                      bg={
+                                        percentage >= 80 ? customColors.orange : 
+                                        percentage >= 60 ? customColors.coral : 
+                                        percentage >= 40 ? customColors.pink : 
+                                        'red.500'
+                                      }
+                                      color="white"
+                                      px={2} 
+                                      py={1} 
+                                      borderRadius="full"
+                                    >
+                                      {percentage >= 80 ? 'Excellent' : 
+                                       percentage >= 60 ? 'Good' : 
+                                       percentage >= 40 ? 'Average' : 
+                                       'Needs Improvement'}
+                                    </Badge>
+                                  </Td>
+                                </Tr>
+                              );
+                            })}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
                   </CardBody>
                 </Card>
                 
-                {/* Strengths & Weaknesses */}
                 <Card boxShadow="md">
-                  <CardHeader pb={0}>
-                    <Heading size="md">Skills Assessment</Heading>
-                    <Text color={subTextColor}>Strengths and areas for improvement</Text>
+                  <CardHeader>
+                    <Heading size="md">Performance Analysis</Heading>
                   </CardHeader>
                   <CardBody>
-                    <Box h="300px">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={analytics.strengthsWeaknesses}>
-                          <PolarGrid stroke={chartColors.grid} />
-                          <PolarAngleAxis dataKey="name" tick={{ fill: textColor }} />
-                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: textColor }} />
-                          <Radar
-                            name="Skills"
-                            dataKey="score"
-                            stroke={chartColors.primary}
-                            fill={chartColors.primary}
-                            fillOpacity={0.6}
-                          />
-                          <RechartsTooltip 
-                            formatter={(value: any) => [`${value.toFixed(1)}%`, 'Proficiency']}
-                            contentStyle={{ 
-                              backgroundColor: cardBg, 
-                              border: `1px solid ${borderColor}`,
-                              color: textColor
-                            }}
-                          />
-                        </RadarChart>
-                      </ResponsiveContainer>
-                    </Box>
+                    <VStack align="start" spacing={4}>
+                      <Box>
+                        <Heading size="sm" mb={2}>Summary</Heading>
+                        <Text>{getPerformanceSummary()}</Text>
+                      </Box>
+                      
+                      <Box>
+                        <Heading size="sm" mb={2}>Strengths</Heading>
+                        <Text>
+                          Based on the assessment, {studentName} demonstrates particular strength in 
+                          {analytics.strengthsWeaknesses
+                            .sort((a, b) => b.score - a.score)
+                            .slice(0, 2)
+                            .map(s => ` ${s.name.toLowerCase()}`)
+                            .join(' and ')}.
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Heading size="sm" mb={2}>Areas for Improvement</Heading>
+                        <Text>
+                          To improve overall performance, {studentName} should focus on developing skills in 
+                          {analytics.strengthsWeaknesses
+                            .sort((a, b) => a.score - b.score)
+                            .slice(0, 2)
+                            .map(s => ` ${s.name.toLowerCase()}`)
+                            .join(' and ')}.
+                        </Text>
+                      </Box>
+                      
+                      <Box>
+                        <Heading size="sm" mb={2}>Recommendations</Heading>
+                        <Text>
+                          {analytics.averageScore >= 8 ? (
+                            `${studentName} is performing excellently. To maintain this high level of achievement, consider exploring more advanced topics and challenging material.`
+                          ) : analytics.averageScore >= 6 ? (
+                            `${studentName} is performing well but could benefit from additional practice in specific areas, particularly focusing on conceptual understanding and application.`
+                          ) : analytics.averageScore >= 4 ? (
+                            `${studentName} would benefit from more structured study sessions, focusing on fundamental concepts and regular practice with feedback.`
+                          ) : (
+                            `${studentName} requires additional support. Consider implementing a structured intervention plan with regular check-ins, targeted practice, and one-on-one tutoring sessions.`
+                          )}
+                        </Text>
+                      </Box>
+                    </VStack>
                   </CardBody>
                 </Card>
-              </SimpleGrid>
-              
-              {/* Detailed Exam Performance */}
-              <Card boxShadow="md" mb={8}>
-                <CardHeader>
-                  <Heading size="md">Exam Performance Details</Heading>
-                </CardHeader>
-                <CardBody>
-                  <TableContainer>
-                    <Table variant="simple">
-                      <Thead>
-                        <Tr>
-                          <Th>Exam</Th>
-                          <Th>Date</Th>
-                          <Th isNumeric>Score</Th>
-                          <Th isNumeric>Percentage</Th>
-                          <Th>Performance</Th>
-                        </Tr>
-                      </Thead>
-                      <Tbody>
-                        {submissions
-                          .filter(s => s.score !== null)
-                          .map((submission) => {
-                            const percentage = ((submission.score ?? 0) / 10) * 100;
-                            let performanceColor;
-                            if (percentage >= 80) performanceColor = "green";
-                            else if (percentage >= 60) performanceColor = "blue";
-                            else if (percentage >= 40) performanceColor = "orange";
-                            else performanceColor = "red";
-                            
-                            return (
-                              <Tr key={submission.id}>
-                                <Td fontWeight="medium">{submission.exams.title}</Td>
-                                <Td>{new Date(submission.created_at).toLocaleDateString()}</Td>
-                                <Td isNumeric>{submission.score} / 10</Td>
-                                <Td isNumeric>{percentage.toFixed(1)}%</Td>
-                                <Td>
-                                  <Badge colorScheme={performanceColor} px={2} py={1} borderRadius="full">
-                                    {percentage >= 80 ? 'Excellent' : 
-                                     percentage >= 60 ? 'Good' : 
-                                     percentage >= 40 ? 'Average' : 
-                                     'Needs Improvement'}
-                                  </Badge>
-                                </Td>
-                              </Tr>
-                            );
-                          })}
-                      </Tbody>
-                    </Table>
-                  </TableContainer>
-                </CardBody>
-              </Card>
-              
-              {/* Performance Analysis */}
-              <Card boxShadow="md">
-                <CardHeader>
-                  <Heading size="md">Performance Analysis</Heading>
-                </CardHeader>
-                <CardBody>
-                  <VStack align="start" spacing={4}>
-                    <Box>
-                      <Heading size="sm" mb={2}>Summary</Heading>
-                      <Text>{getPerformanceSummary()}</Text>
-                    </Box>
-                    
-                    <Box>
-                      <Heading size="sm" mb={2}>Strengths</Heading>
-                      <Text>
-                        Based on the assessment, {studentName} demonstrates particular strength in 
-                        {analytics.strengthsWeaknesses
-                          .sort((a, b) => b.score - a.score)
-                          .slice(0, 2)
-                          .map(s => ` ${s.name.toLowerCase()}`)
-                          .join(' and ')}.
-                      </Text>
-                    </Box>
-                    
-                    <Box>
-                      <Heading size="sm" mb={2}>Areas for Improvement</Heading>
-                      <Text>
-                        To improve overall performance, {studentName} should focus on developing skills in 
-                        {analytics.strengthsWeaknesses
-                          .sort((a, b) => a.score - b.score)
-                          .slice(0, 2)
-                          .map(s => ` ${s.name.toLowerCase()}`)
-                          .join(' and ')}.
-                      </Text>
-                    </Box>
-                    
-                    <Box>
-                      <Heading size="sm" mb={2}>Recommendations</Heading>
-                      <Text>
-                        {analytics.averageScore >= 8 ? (
-                          `${studentName} is performing excellently. To maintain this high level of achievement, consider exploring more advanced topics and challenging material.`
-                        ) : analytics.averageScore >= 6 ? (
-                          `${studentName} is performing well but could benefit from additional practice in specific areas, particularly focusing on conceptual understanding and application.`
-                        ) : analytics.averageScore >= 4 ? (
-                          `${studentName} would benefit from more structured study sessions, focusing on fundamental concepts and regular practice with feedback.`
-                        ) : (
-                          `${studentName} requires additional support. Consider implementing a structured intervention plan with regular check-ins, targeted practice, and one-on-one tutoring sessions.`
-                        )}
-                      </Text>
-                    </Box>
-                  </VStack>
-                </CardBody>
-              </Card>
-              
-              {/* Footer */}
-              <Flex 
-                justify="space-between" 
-                align="center" 
-                mt={8} 
-                pt={4}
-                borderTop="1px"
-                borderColor={borderColor}
-              >
-                <Text fontSize="sm" color={subTextColor}>
-                  Generated by AEMS • {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
-                </Text>
-                <Text fontSize="sm" color={subTextColor}>
-                  Automated Exam Marking System
-                </Text>
-              </Flex>
-            </Box>
+                
+                <MotionFlex 
+                  justify="space-between" 
+                  align="center" 
+                  mt={8} 
+                  pt={4}
+                  borderTop="1px"
+                  borderColor={borderColor}
+                  position="relative"
+                  _after={{
+                    content: '""',
+                    position: 'absolute',
+                    bottom: '-1px',
+                    left: '0',
+                    right: '0',
+                    height: '2px',
+                    bgGradient: `linear(to-r, ${customColors.orange}, ${customColors.pink})`
+                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ 
+                    type: "tween",
+                    duration: 0.5,
+                    delay: 0.8 
+                  }}
+                >
+                  <HStack spacing={2}>
+                    <Icon as={FaBookReader} w={4} h={4} color="blue.500" />
+                    <Text fontSize="sm" color={subTextColor}>
+                      Generated by AEMS • {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
+                    </Text>
+                  </HStack>
+                  <Text fontSize="sm" color={subTextColor}>
+                    Automated Exam Marking System
+                  </Text>
+                </MotionFlex>
+              </Box>
+            </motion.div>
           </>
         )}
       </Container>
@@ -919,3 +1092,8 @@ const StudentReport = () => {
 };
 
 export default StudentReport;
+
+// Add these styles to your global CSS or create a new styles file
+const styles = {
+  // Add any custom styles here
+};

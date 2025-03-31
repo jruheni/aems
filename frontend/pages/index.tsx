@@ -42,6 +42,17 @@ import { useRouter } from 'next/router';
 import { IconType } from 'react-icons';
 import Header from '../components/Header';
 
+// Add this near the top of the file, after the imports
+const customColors = {
+  orange: '#ff8906',
+  coral: '#f25f4c',
+  pink: '#e53170',
+};
+
+// Then update the MotionBox and MotionFlex declarations
+const MotionBox = motion(Box);
+const MotionFlex = motion(Flex);
+
 // Define types for our components
 interface FeatureProps {
   title: string;
@@ -228,49 +239,93 @@ export default function Home() {
       <Box mt="16">
         <Box bg={bgColor} minH="100vh">
           {/* Hero Section */}
-          <Box as="section" py={20} bg={useColorModeValue('gray.50', 'gray.900')}>
-            <Container maxW="container.xl">
-              <VStack spacing={8} textAlign="center">
-                <Heading
-                  as="h1"
-                  size="2xl"
-                  fontWeight="bold"
-                  color={headingColor}
-                  lineHeight="1.2"
-                  maxW="800px"
+          <Box
+            position="relative"
+            overflow="hidden"
+            bg={`linear-gradient(135deg, ${customColors.coral} 0%, ${customColors.pink} 100%)`}
+            color="white"
+          >
+            {/* Decorative Elements */}
+            <Box
+              position="absolute"
+              top="-10%"
+              right="-10%"
+              width="600px"
+              height="600px"
+              borderRadius="full"
+              bg={`linear-gradient(45deg, ${customColors.orange}22, ${customColors.coral}22)`}
+              filter="blur(40px)"
+            />
+            <Box
+              position="absolute"
+              bottom="-20%"
+              left="-10%"
+              width="400px"
+              height="400px"
+              borderRadius="full"
+              bg={`linear-gradient(45deg, ${customColors.pink}22, ${customColors.coral}22)`}
+              filter="blur(40px)"
+            />
+
+            <Container maxW="container.xl" py={20}>
+              <Stack
+                direction={{ base: 'column', lg: 'row' }}
+                spacing={10}
+                align="center"
+                justify="space-between"
+              >
+                <MotionBox
+                  initial={{ opacity: 0, x: -50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5 }}
+                  flex={1}
                 >
-                  Automated Exam Marking System
-                </Heading>
-                
-                <Text fontSize="xl" color={textColor} maxW="800px">
-                  Streamline your exam grading process with our AI-powered marking system. Save time, reduce errors, and provide consistent feedback to your students.
-                </Text>
-                
-                <HStack spacing={6} pt={8}>
-                  <Button 
-                    as={NextLink}
-                    href="/login?role=teacher"
-                    size={buttonSize} 
-                    colorScheme="blue"
-                    height="60px"
-                    px={8}
-                    leftIcon={<FaUserShield />}
+                  <Heading
+                    size="2xl"
+                    lineHeight="shorter"
+                    mb={6}
+                    fontWeight="extrabold"
                   >
-                    Teacher Login
-                  </Button>
-                  <Button 
-                    as={NextLink}
-                    href="/login?role=student"
-                    size={buttonSize} 
-                    colorScheme="green"
-                    height="60px"
-                    px={8}
-                    leftIcon={<FaGraduationCap />}
-                  >
-                    Student Login
-                  </Button>
-                </HStack>
-              </VStack>
+                    Automated Exam Marking System
+                  </Heading>
+                  <Text fontSize="xl" mb={8} opacity={0.9}>
+                    Transform your exam management with our intelligent grading system.
+                    Save time, reduce errors, and gain valuable insights.
+                  </Text>
+                  <HStack spacing={4}>
+                    <Button
+                      size="lg"
+                      bg={customColors.orange}
+                      _hover={{ bg: customColors.coral }}
+                      onClick={() => router.push('/login?role=teacher')}
+                    >
+                      Teacher Login
+                    </Button>
+                    <Button
+                      size="lg"
+                      bg={customColors.pink}
+                      _hover={{ opacity: 0.9 }}
+                      onClick={() => router.push('/login?role=student')}
+                    >
+                      Student Login
+                    </Button>
+                  </HStack>
+                </MotionBox>
+
+                <MotionBox
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.2 }}
+                  flex={1}
+                >
+                  <Image
+                    src="\images\Open Doodles - Stuff To Do.png" // Add a relevant illustration
+                    alt="AEMS Platform"
+                    width="100%"
+                    maxW="600px"
+                  />
+                </MotionBox>
+              </Stack>
             </Container>
           </Box>
 

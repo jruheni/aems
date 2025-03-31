@@ -21,6 +21,7 @@ import {
   AreaChart, Area
 } from 'recharts';
 import Header from '../components/Header';
+import { customColors, getGradients } from '../src/theme/colors';
 
 // Define types for our analytics data
 interface ExamStats {
@@ -494,9 +495,11 @@ const Dashboard: React.FC = () => {
               px={{ base: 2, md: 4 }}
               py="5"
               shadow="base"
-              borderColor="gray.500"
+              borderColor={customColors.orange}
               rounded="lg"
               bg={useColorModeValue('white', 'gray.700')}
+              _hover={{ transform: 'translateY(-2px)', shadow: 'md' }}
+              transition="all 0.2s"
             >
               <StatLabel fontWeight="semibold">Total Exams</StatLabel>
               <StatNumber fontSize="3xl">
@@ -682,11 +685,15 @@ const Dashboard: React.FC = () => {
                         formatter={(value: number) => [`${value.toFixed(1)}`, 'Average Score']}
                         labelFormatter={(label: string) => `Exam: ${label}`}
                       />
-                      <Bar dataKey="average" fill="#8884d8" barSize={20} radius={[0, 4, 4, 0]}>
+                      <Bar 
+                        dataKey="average" 
+                        fill={customColors.orange}
+                        radius={[4, 4, 0, 0]}
+                      >
                         {analyticsData.examPerformance.map((entry, index) => (
                           <Cell 
                             key={`cell-${index}`} 
-                            fill={entry.average >= 6 ? '#66BB6A' : '#FF5252'} 
+                            fill={entry.average >= 6 ? customColors.orange : customColors.coral} 
                           />
                         ))}
                       </Bar>
@@ -705,7 +712,15 @@ const Dashboard: React.FC = () => {
           <Box mt={8}>
             <Flex justify="space-between" align="center" mb={4}>
               <Heading size="md">Your Exams</Heading>
-              <Button colorScheme="blue" onClick={onOpen}>Create New Exam</Button>
+              <Button
+                colorScheme="blue"
+                bg={customColors.orange}
+                color="white"
+                _hover={{ bg: customColors.coral }}
+                onClick={onOpen}
+              >
+                Create New Exam
+              </Button>
             </Flex>
             
             <SimpleGrid columns={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing={6}>
@@ -723,7 +738,15 @@ const Dashboard: React.FC = () => {
                   bg={cardBg}
                 >
                   <Text mb={4}>You haven't created any exams yet.</Text>
-                  <Button colorScheme="blue" onClick={onOpen}>Create Your First Exam</Button>
+                  <Button
+                    colorScheme="blue"
+                    bg={customColors.orange}
+                    color="white"
+                    _hover={{ bg: customColors.coral }}
+                    onClick={onOpen}
+                  >
+                    Create Your First Exam
+                  </Button>
                 </Box>
               ) : (
                 exams.map((exam) => (
@@ -737,7 +760,11 @@ const Dashboard: React.FC = () => {
                     cursor="pointer"
                     position="relative"
                     onClick={() => handleExamClick(exam)}
-                    _hover={{ borderColor: 'blue.500', transform: 'translateY(-2px)' }}
+                    _hover={{ 
+                      borderColor: customColors.orange,
+                      transform: 'translateY(-2px)',
+                      boxShadow: 'md'
+                    }}
                     transition="all 0.2s"
                   >
                     <Heading size="sm" mb={2} noOfLines={2}>{exam.title}</Heading>

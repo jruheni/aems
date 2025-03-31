@@ -31,6 +31,7 @@ import {
 } from 'recharts';
 import { FaChartBar, FaChartPie, FaUserGraduate, FaCheck, FaTimes, FaExclamationTriangle, FaUpload, FaEdit, FaFileAlt, FaTrash, FaArrowLeft } from 'react-icons/fa';
 import Header from '../components/Header';
+import { customColors, getGradients } from '../src/theme/colors';
 // import { Submission } from '../types/submission';
 
 interface SubmissionData {
