@@ -39,6 +39,7 @@ python-dotenv==1.0.0
 python-jose==3.3.0
 python-magic==0.4.27
 pytz==2025.2
+PyJWT==2.8.0
 reportlab==4.0.4
 requests==2.32.3
 rsa==4.9
