@@ -11,11 +11,12 @@ const Layout = ({ children }: LayoutProps) => {
   const { colorMode, toggleColorMode } = useColorMode()
   const bgColor = useColorModeValue('gray.50', 'gray.900')
   const navBg = useColorModeValue('white', 'gray.800')
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [username, setUsername] = useState<string | null>(null)
 
   useEffect(() => {
-    const username = localStorage.getItem('username')
-    setIsLoggedIn(!!username)
+    if (typeof window !== 'undefined') {
+      setUsername(localStorage.getItem('username'))
+    }
   }, [])
 
   return (
@@ -39,7 +40,7 @@ const Layout = ({ children }: LayoutProps) => {
             <Link href="/login" passHref>
               <Button variant="ghost">Upload Exam</Button>
             </Link>
-            {isLoggedIn && (
+            {username && (
               <Link href="/history" passHref>
                 <Button variant="ghost">History</Button>
               </Link>

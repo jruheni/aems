@@ -33,17 +33,11 @@ const Header: React.FC<HeaderProps> = ({ currentPage, username, userRole }) => {
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { 
-        method: 'POST',
-        credentials: 'include'
-      });
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
       localStorage.clear();
-      router.replace('/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
     }
+    router.push('/login');
   };
 
   const renderNavigationItems = () => {

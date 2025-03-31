@@ -121,6 +121,7 @@ const StudentReport = () => {
   
   const [userRole, setUserRole] = useState<'teacher' | 'student'>('student');
   const [autoRefresh, setAutoRefresh] = useState<NodeJS.Timeout | null>(null);
+  const [storedUserId, setStoredUserId] = useState<string | null>(null);
   
   // Move chartColors here, inside the component
   const chartColors = {
@@ -132,27 +133,21 @@ const StudentReport = () => {
   };
   
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setStoredUserId(localStorage.getItem('username'));
+    }
+  }, []);
+
+  useEffect(() => {
     // Check if the user is logged in and get their role
     const checkUserRole = () => {
-      const storedUserId = localStorage.getItem('username');
-      if (!storedUserId) {
-        router.replace('/login');
-        return;
+      if (typeof window === 'undefined') return false;
+      const userRole = localStorage.getItem('userRole');
+      if (userRole !== 'student') {
+        router.push('/login');
+        return false;
       }
-
-      // If viewing own report (URLs match)
-      if (storedUserId === id) {
-        setUserRole('student');
-        // Set up auto-refresh for students
-        const refreshInterval = setInterval(() => {
-          if (id) {
-            loadStudentData(id as string);
-          }
-        }, 30000); // Refresh every 30 seconds
-        setAutoRefresh(refreshInterval);
-      } else {
-        setUserRole('teacher');
-      }
+      return true;
     };
 
     checkUserRole();
@@ -178,8 +173,9 @@ const StudentReport = () => {
     
     try {
       // If student is trying to view someone else's report
-      if (userRole === 'student' && studentId !== localStorage.getItem('username')) {
-        throw new Error('Unauthorized access');
+      if (typeof window !== 'undefined' && userRole === 'student' && studentId !== localStorage.getItem('username')) {
+        router.push('/login');
+        return;
       }
 
       console.log("Loading data for student ID:", studentId);

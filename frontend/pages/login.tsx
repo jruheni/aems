@@ -91,8 +91,10 @@ export default function Login() {
       const data = await response.json();
       
       // Store user info
-      localStorage.setItem('userId', data.user.id);
-      localStorage.setItem('username', data.user.username);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('userId', data.user.id);
+        localStorage.setItem('username', data.user.username);
+      }
       
       toast({
         title: 'Login Successful',
@@ -103,7 +105,6 @@ export default function Login() {
         position: 'top',
       });
       
-      // Use replace instead of push
       router.replace('/dashboard');
       
     } catch (error: unknown) {
@@ -141,8 +142,10 @@ export default function Login() {
       const data = await response.json();
       
       // Store user info
-      localStorage.setItem('userId', data.user.id);
-      localStorage.setItem('username', data.user.username);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('userId', data.user.id);
+        localStorage.setItem('username', data.user.username);
+      }
       
       toast({
         title: 'Login Successful',
@@ -153,7 +156,6 @@ export default function Login() {
         position: 'top',
       });
 
-      // Use replace instead of push
       router.replace('/student-dashboard');
       
     } catch (error: unknown) {

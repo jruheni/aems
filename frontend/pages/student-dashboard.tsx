@@ -120,20 +120,25 @@ export default function StudentDashboard() {
   const textColor = useColorModeValue('gray.600', 'gray.400');
   const headingColor = useColorModeValue('gray.800', 'white');
   
+  const [studentId, setStudentId] = useState<string | null>(null);
+  const [studentName, setStudentName] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const id = localStorage.getItem('username');
+      const name = localStorage.getItem('username');
+      setStudentId(id);
+      setStudentName(name);
+    }
+  }, []);
+  
   useEffect(() => {
     loadStudentData();
   }, []);
   
   const loadStudentData = async () => {
+    if (!studentId) return;
     try {
-      // Get student ID from localStorage (set during login)
-      const studentId = localStorage.getItem('username'); // we stored student_id as username
-      
-      if (!studentId) {
-        router.replace('/login?role=student');
-        return;
-      }
-
       // Fetch student details
       const { data: studentData, error: studentError } = await supabase
         .from('students')
@@ -206,12 +211,8 @@ export default function StudentDashboard() {
 
   // Modify the viewPerformanceReport function
   const viewPerformanceReport = () => {
-    // Change this to use student_id instead of userId
-    const studentId = localStorage.getItem('username'); // student_id is stored as username during login
-    const studentName = student?.name || localStorage.getItem('username');
-    if (studentId && studentName) {
-      router.push(`/student-report?id=${encodeURIComponent(studentId)}&name=${encodeURIComponent(studentName)}`);
-    }
+    if (!studentId) return;
+    router.push(`/student-report?id=${studentId}`);
   };
 
   if (isLoading) {

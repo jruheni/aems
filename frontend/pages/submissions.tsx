@@ -103,6 +103,7 @@ const SubmissionsPage: React.FC = () => {
   const [rubricUploadProgress, setRubricUploadProgress] = useState(0);
   const [rubricError, setRubricError] = useState('');
   const [isUpdatingRubric, setIsUpdatingRubric] = useState(false);
+  const [storedUserId, setStoredUserId] = useState<string | null>(null);
 
   // Simple analytics
   const analytics = {
@@ -147,7 +148,9 @@ const SubmissionsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
+    if (typeof window !== 'undefined') {
+      setStoredUserId(localStorage.getItem('userId'));
+    }
     
     if (!storedUserId) {
       router.push('/login');
@@ -1157,7 +1160,7 @@ const SubmissionsPage: React.FC = () => {
     <Box p={5}>
       <Header 
         currentPage="submissions" 
-        username={localStorage.getItem('username') || ''}
+        username={typeof window !== 'undefined' ? localStorage.getItem('username') || '' : ''}
         userRole="teacher"
       />
       <Container maxW="container.xl" mt="16">

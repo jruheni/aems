@@ -94,6 +94,16 @@ const Dashboard: React.FC = () => {
     examsRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const [storedUserId, setStoredUserId] = useState<string | null>(null);
+  const [storedUsername, setStoredUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setStoredUserId(localStorage.getItem('userId'));
+      setStoredUsername(localStorage.getItem('username'));
+    }
+  }, []);
+
   useEffect(() => {
     const storedUserId = localStorage.getItem('userId');
     const storedUsername = localStorage.getItem('username');
@@ -302,18 +312,12 @@ const Dashboard: React.FC = () => {
     router.push(`/submissions?examId=${exam.id}&examName=${encodeURIComponent(exam.title)}`);
   };
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { 
-        method: 'POST',
-        credentials: 'include'
-      });
+  const handleLogout = () => {
+    if (typeof window !== 'undefined') {
       localStorage.removeItem('userId');
       localStorage.removeItem('username');
-      router.replace('/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
     }
+    router.push('/login');
   };
   
   const bgColor = useColorModeValue('gray.50', 'gray.900');
