@@ -38,7 +38,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.0
 python-jose==3.3.0
 python-magic==0.4.27
-python-magic-bin==0.4.14
 pytz==2025.2
 reportlab==4.0.4
 requests==2.32.3
