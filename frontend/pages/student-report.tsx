@@ -21,6 +21,7 @@ import jsPDF from 'jspdf';
 import { motion } from 'framer-motion';
 import { keyframes } from '@emotion/react';
 import { customColors, getGradients } from '../src/theme/colors';
+import { getApiUrl } from '../src/utils/api';
 
 // Add proper types for the submissions and analytics
 interface Exam {
@@ -150,7 +151,18 @@ const StudentReport = () => {
       return true;
     };
 
-    checkUserRole();
+    // Verify authentication
+    fetch(getApiUrl('auth/verify'), {
+      credentials: 'include'
+    }).then(response => {
+      if (!response.ok) {
+        router.push('/login');
+        return;
+      }
+      checkUserRole();
+    }).catch(() => {
+      router.push('/login');
+    });
 
     // Cleanup interval on unmount
     return () => {

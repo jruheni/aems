@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 import Header from '../components/Header';
 import { customColors, getGradients } from '../src/theme/colors';
+import { getApiUrl } from '../src/utils/api';
 
 // Define types for our analytics data
 interface ExamStats {
@@ -114,7 +115,7 @@ const Dashboard: React.FC = () => {
     }
 
     // Add an auth check using the cookie
-    fetch('/api/auth/verify', {
+    fetch(getApiUrl('auth/verify'), {
       credentials: 'include'
     }).then(response => {
       if (!response.ok) {

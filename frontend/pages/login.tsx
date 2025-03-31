@@ -35,6 +35,7 @@ import { useRouter } from 'next/router';
 import NextLink from 'next/link';
 import Header from '../components/Header';
 import { customColors } from '../src/theme/colors';
+import { getApiUrl } from '../src/utils/api';
 
 export default function Login() {
   const router = useRouter();
@@ -70,7 +71,7 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(getApiUrl('auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,7 +122,7 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const response = await fetch('/api/auth/student-login', {
+      const response = await fetch(getApiUrl('auth/student-login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

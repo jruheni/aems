@@ -66,6 +66,7 @@ import {
 import { useRouter } from 'next/router';
 import { supabase } from '../src/services/supabaseClient';
 import Header from '../components/Header';
+import { getApiUrl } from '../src/utils/api';
 
 // Register ChartJS components
 ChartJS.register(
@@ -124,26 +125,37 @@ export default function StudentDashboard() {
   const [studentName, setStudentName] = useState<string | null>(null);
   
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const id = localStorage.getItem('username');
-      const name = localStorage.getItem('username');
-      setStudentId(id);
-      setStudentName(name);
+    const storedUserId = localStorage.getItem('userId');
+    const storedUsername = localStorage.getItem('username');
+    
+    if (!storedUserId || !storedUsername) {
+      router.replace('/login');
+      return;
     }
-  }, []);
+
+    // Add an auth check using the cookie
+    fetch(getApiUrl('auth/verify'), {
+      credentials: 'include'
+    }).then(response => {
+      if (!response.ok) {
+        router.replace('/login');
+        return;
+      }
+      setStudentId(storedUserId);
+      setStudentName(storedUsername);
+      loadStudentData(storedUserId);
+    }).catch(() => {
+      router.replace('/login');
+    });
+  }, [router]);
   
-  useEffect(() => {
-    loadStudentData();
-  }, []);
-  
-  const loadStudentData = async () => {
-    if (!studentId) return;
+  const loadStudentData = async (id: string) => {
     try {
       // Fetch student details
       const { data: studentData, error: studentError } = await supabase
         .from('students')
         .select('*')
-        .eq('student_id', studentId)
+        .eq('student_id', id)
         .single();
 
       if (studentError || !studentData) {
@@ -162,7 +174,7 @@ export default function StudentDashboard() {
             description
           )
         `)
-        .eq('student_id', studentId)
+        .eq('student_id', id)
         .order('created_at', { ascending: false });
 
       if (submissionsError) {
