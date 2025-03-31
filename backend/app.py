@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
@@ -16,6 +16,13 @@ import secrets
 import json
 import traceback
 import sys
+import jwt
+import bcrypt
+from datetime import datetime, timedelta
+import requests
+from supabase import create_client, Client
+import subprocess
+import re
 
 
 
@@ -34,8 +41,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Configure CORS
+CORS(app, 
+     resources={r"/*": {
+         "origins": ["https://aems-frontend.onrender.com", "http://localhost:3000"],
+         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         "allow_headers": ["Content-Type", "Authorization"],
+         "supports_credentials": True
+     }},
+     supports_credentials=True)
 
 app.register_blueprint(ocr_bp)
 app.register_blueprint(grading_bp)

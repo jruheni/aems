@@ -35,7 +35,7 @@ import { useRouter } from 'next/router';
 import NextLink from 'next/link';
 import Header from '../components/Header';
 import { customColors } from '../src/theme/colors';
-import { getApiUrl } from '../src/utils/api';
+import { apiRequest } from '../src/utils/api';
 
 export default function Login() {
   const router = useRouter();
@@ -71,30 +71,19 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const response = await fetch(getApiUrl('auth/login'), {
+      const data = await apiRequest('auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           username: teacherUsername,
           password: teacherPassword,
         }),
-        credentials: 'include'
       });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Login error response:', errorText);
-        throw new Error('Login failed. Please check your credentials and try again.');
-      }
-      
-      const data = await response.json();
       
       // Store user info
       if (typeof window !== 'undefined') {
         localStorage.setItem('userId', data.user.id);
         localStorage.setItem('username', data.user.username);
+        localStorage.setItem('userRole', 'teacher');
       }
       
       toast({
@@ -122,30 +111,19 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const response = await fetch(getApiUrl('auth/student-login'), {
+      const data = await apiRequest('auth/student-login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           student_id: studentId,
           password: studentPassword,
         }),
-        credentials: 'include'
       });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Student login error response:', errorText);
-        throw new Error('Login failed. Please check your credentials and try again.');
-      }
-      
-      const data = await response.json();
       
       // Store user info
       if (typeof window !== 'undefined') {
         localStorage.setItem('userId', data.user.id);
         localStorage.setItem('username', data.user.username);
+        localStorage.setItem('userRole', 'student');
       }
       
       toast({

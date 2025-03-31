@@ -18,6 +18,7 @@ export const apiRequest = async (path: string, options: RequestInit = {}) => {
       'Content-Type': 'application/json',
       ...options.headers,
     },
+    mode: 'cors',
   });
 
   if (!response.ok) {
@@ -28,9 +29,15 @@ export const apiRequest = async (path: string, options: RequestInit = {}) => {
   return response.json();
 };
 
+// Helper function for authenticated requests
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   return fetch(url, {
     ...options,
-    credentials: 'include',  // This will send the cookie
+    credentials: 'include',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
   });
 }; 

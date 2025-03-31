@@ -64,9 +64,8 @@ import {
   Filler,
 } from 'chart.js';
 import { useRouter } from 'next/router';
-import { supabase } from '../src/services/supabaseClient';
+import { apiRequest } from '../src/utils/api';
 import Header from '../components/Header';
-import { getApiUrl } from '../src/utils/api';
 
 // Register ChartJS components
 ChartJS.register(
@@ -134,29 +133,25 @@ export default function StudentDashboard() {
     }
 
     // Add an auth check using the cookie
-    fetch(getApiUrl('auth/verify'), {
-      credentials: 'include'
-    }).then(response => {
-      if (!response.ok) {
+    apiRequest('auth/verify')
+      .then(() => {
+        setStudentId(storedUserId);
+        setStudentName(storedUsername);
+        loadStudentData(storedUserId);
+      })
+      .catch(() => {
         router.replace('/login');
-        return;
-      }
-      setStudentId(storedUserId);
-      setStudentName(storedUsername);
-      loadStudentData(storedUserId);
-    }).catch(() => {
-      router.replace('/login');
-    });
+      });
   }, [router]);
   
   const loadStudentData = async (id: string) => {
     try {
       // Fetch student details
-      const { data: studentData, error: studentError } = await supabase
-        .from('students')
-        .select('*')
-        .eq('student_id', id)
-        .single();
+      const { data: studentData, error: studentError } = await apiRequest('students', {
+        method: 'GET',
+        params: { student_id: id },
+        credentials: 'include'
+      });
 
       if (studentError || !studentData) {
         throw new Error('Failed to load student data');
@@ -165,17 +160,11 @@ export default function StudentDashboard() {
       setStudent(studentData);
 
       // Fetch all submissions for this student
-      const { data: submissionsData, error: submissionsError } = await supabase
-        .from('submissions')
-        .select(`
-          *,
-          exams (
-            title,
-            description
-          )
-        `)
-        .eq('student_id', id)
-        .order('created_at', { ascending: false });
+      const { data: submissionsData, error: submissionsError } = await apiRequest('submissions', {
+        method: 'GET',
+        params: { student_id: id },
+        credentials: 'include'
+      });
 
       if (submissionsError) {
         throw new Error('Failed to load submissions');
