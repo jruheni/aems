@@ -3,6 +3,8 @@ import json
 import os
 import logging
 import uuid
+import hashlib
+import secrets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -106,11 +108,20 @@ def register_user(username, password):
         if check_response.status_code == 200 and check_response.json():
             raise ValueError("Username already exists")
         
-        # Insert new user
+        # Generate a random salt
+        salt = secrets.token_hex(16)
+        
+        # Hash the password with the salt
+        pwdhash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+        
+        # Store the salt and hash together
+        hashed_password = f"{salt}${pwdhash}"
+        
+        # Insert new user - remove the role field since it doesn't exist in the table
         insert_url = f"{SUPABASE_URL}/rest/v1/users"
         insert_data = {
             "username": username,
-            "password": password  # In a real app, hash this password
+            "password": hashed_password
         }
         
         insert_response = requests.post(
@@ -121,7 +132,11 @@ def register_user(username, password):
         
         if insert_response.status_code in (200, 201):
             user = insert_response.json()[0]
-            return user
+            # Return user data without password
+            return {
+                'id': user.get('id'),
+                'username': user.get('username')
+            }
         else:
             logger.error(f"Failed to register user: {insert_response.text}")
             raise Exception(f"Registration failed: {insert_response.text}")
@@ -132,28 +147,79 @@ def register_user(username, password):
         raise
 
 def authenticate_user(username, password):
-    """Authenticate a user using Supabase REST API"""
+    """Authenticate a user with username and password"""
     try:
-        # Get user by username
-        url = f"{SUPABASE_URL}/rest/v1/users?username=eq.{username}&select=id,username,password"
-        response = requests.get(url, headers=headers)
+        # Get user by username - Fix the query to use eq.
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?username=eq.{username}",
+            headers=headers
+        )
         
         if response.status_code != 200 or not response.json():
             return None
         
         user = response.json()[0]
         
-        # Check password (in a real app, verify hash)
-        if user["password"] == password:
-            return {
-                "id": user["id"],
-                "username": user["username"]
-            }
+        # Verify password
+        stored_password = user.get('password')
+        if not stored_password:
+            return None
+        
+        try:
+            # Split the stored password into salt and hash
+            salt, stored_hash = stored_password.split('$')
+            
+            # Hash the provided password with the same salt
+            pwdhash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+            
+            # Compare hashes
+            if pwdhash == stored_hash:
+                # Return user data without password
+                return {
+                    'id': user.get('id'),
+                    'username': user.get('username'),
+                    'role': user.get('role', 'teacher')
+                }
+        except ValueError:
+            # If the stored password doesn't have the correct format, try direct comparison
+            # This is for backward compatibility with existing users
+            if stored_password == password:
+                return {
+                    'id': user.get('id'),
+                    'username': user.get('username'),
+                    'role': user.get('role', 'teacher')
+                }
         
         return None
+        
     except Exception as e:
-        logger.error(f"Authentication error: {e}")
-        return None
+        logger.error(f"Error authenticating user: {str(e)}")
+        raise
+
+def get_user(user_id):
+    """Get user details by ID"""
+    try:
+        # Use eq. for exact match in Supabase
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?id=eq.{user_id}",
+            headers=headers
+        )
+        
+        if response.status_code != 200 or not response.json():
+            logger.info(f"No user found for id: {user_id}")
+            return None
+        
+        user = response.json()[0]
+        # Return user data without password
+        return {
+            'id': user.get('id'),
+            'username': user.get('username'),
+            'role': user.get('role', 'teacher')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting user: {str(e)}")
+        raise
 
 def get_exams(user_id=None):
     """Get exams using Supabase REST API"""
@@ -195,28 +261,34 @@ def create_exam(title, description, created_by):
         logger.error(f"Create exam error: {e}")
         raise
 
-def upload_rubric(exam_id, file_name, file_type, file_size, preview, content=None):
-    """Upload a rubric using Supabase REST API"""
+def upload_rubric(file_name, file_type, file_size, preview, content, exam_id=None):
+    """Upload a rubric file to Supabase"""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/rubrics"
         data = {
-            "exam_id": exam_id,
             "file_name": file_name,
             "file_type": file_type,
             "file_size": file_size,
             "preview": preview,
-            "content": content
+            "content": content,
         }
         
-        response = requests.post(url, headers=headers, json=data)
+        # Only add exam_id if it's provided
+        if exam_id:
+            data["exam_id"] = exam_id
+            
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/rubrics",
+            headers=headers,
+            json=data
+        )
         
-        if response.status_code in (200, 201):
-            return response.json()[0]
-        else:
-            logger.error(f"Failed to upload rubric: {response.text}")
+        if response.status_code != 201:
             raise Exception(f"Failed to upload rubric: {response.text}")
+            
+        return response.json()
+        
     except Exception as e:
-        logger.error(f"Upload rubric error: {e}")
+        logger.error(f"Error uploading rubric: {str(e)}")
         raise
 
 def get_rubric(exam_id):
@@ -295,6 +367,40 @@ def update_submission_score(submission_id, score, feedback):
     except Exception as e:
         logger.error(f"Update submission score error: {e}")
         return False
+
+def authenticate_student(student_id, password):
+    """Authenticate a student with student ID and password"""
+    try:
+        logger.info(f"Attempting to authenticate student with ID: {student_id}")
+        
+        # Get student from students table
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+            headers=headers
+        )
+        
+        logger.info(f"Supabase response status: {response.status_code}")
+        logger.info(f"Supabase response data: {response.json() if response.status_code == 200 else 'No data'}")
+        
+        if response.status_code != 200 or not response.json():
+            logger.info("No student found with this ID")
+            return None
+        
+        student = response.json()[0]
+        logger.info(f"Found student: {student.get('name')} with ID: {student.get('student_id')}")
+        
+        # For testing purposes, accept any password
+        # TODO: Remove this in production!
+        return {
+            'id': student.get('id'),
+            'username': student.get('name'),  # Using 'name' field as username
+            'student_id': student.get('student_id'),
+            'email': student.get('email')  # Include email in the response
+        }
+        
+    except Exception as e:
+        logger.error(f"Error authenticating student: {str(e)}")
+        return None
 
 # Initialize tables when module is imported
 if __name__ == "__main__":

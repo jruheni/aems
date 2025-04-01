@@ -7,6 +7,19 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Types
+export interface RubricResponse {
+  id: string;
+  exam_id: string | null;
+  file_name: string | null;
+  content: string | null;
+  preview: string | null;
+  created_at: string | null;
+  file_url?: string;
+  image_url?: string;
+  file_type?: string;
+  file_size?: number;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -163,147 +176,168 @@ export async function createExam(
 // Rubric functions
 export async function uploadRubric(examId: string, file: File): Promise<Rubric> {
   try {
-    // Check if file is an image
-    const isImage = file.type.startsWith('image/');
-    let content = '';
-    let imageUrl = '';
-    
-    if (isImage) {
-      // Generate a unique file name to prevent collisions
-      const uniqueFileName = `rubrics/${examId}/${Date.now()}_${file.name}`;
-      
-      // Upload image to storage
-      const { data: uploadData, error: uploadError } = await supabase
-        .storage
-        .from('rubrics')
-        .upload(uniqueFileName, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-      
-      if (uploadError) {
-        console.error('Upload image error:', uploadError);
-        throw new Error(uploadError.message);
-      }
-      
-      // Get public URL for the image
-      const { data: urlData } = await supabase
-        .storage
-        .from('rubrics')
-        .getPublicUrl(uniqueFileName);
-      
-      imageUrl = urlData.publicUrl;
-    } else {
-      // For text files, read the content
-      content = await file.text();
-    }
-    
-    // Check if a rubric already exists for this exam
+    console.log('[Debug] Starting rubric upload for exam:', examId);
+
+    // First check if a rubric already exists for this exam
     const { data: existingRubric, error: fetchError } = await supabase
       .from('rubrics')
-      .select('id')
+      .select('*')
       .eq('exam_id', examId)
-      .maybeSingle();
-    
-    let result;
-    
+      .single();
+
+    // If there's an existing rubric, delete it from storage and database
     if (existingRubric) {
-      // Update existing rubric
-      const { data, error } = await supabase
-        .from('rubrics')
-        .update({
-          content: content || null,
-          image_url: imageUrl || null,
-          file_name: file.name
-        })
-        .eq('id', existingRubric.id)
-        .select();
-      
-      if (error) {
-        console.error('Update rubric error:', error);
-        throw new Error(error.message);
+      console.log('[Debug] Found existing rubric, deleting it:', existingRubric);
+
+      // Delete the old file from storage if it exists
+      if (existingRubric.file_name) {
+        const oldFilePath = `rubrics/${examId}/${existingRubric.file_name}`;
+        const { error: deleteStorageError } = await supabase.storage
+          .from('rubrics')
+          .remove([oldFilePath]);
+
+        if (deleteStorageError) {
+          console.warn('[Debug] Error deleting old file from storage:', deleteStorageError);
+          // Continue with upload even if old file deletion fails
+        }
       }
-      
-      result = data[0];
-    } else {
-      // Create new rubric
-      const { data, error } = await supabase
+
+      // Delete the old rubric record from the database
+      const { error: deleteDbError } = await supabase
         .from('rubrics')
-        .insert([
-          {
-            exam_id: examId,
-            content: content || null,
-            image_url: imageUrl || null,
-            file_name: file.name
-          }
-        ])
-        .select();
-      
-      if (error) {
-        console.error('Create rubric error:', error);
-        throw new Error(error.message);
+        .delete()
+        .eq('id', existingRubric.id);
+
+      if (deleteDbError) {
+        console.error('[Debug] Error deleting old rubric from database:', deleteDbError);
+        throw new Error('Failed to delete existing rubric');
       }
-      
-      result = data[0];
     }
-    
-    return result;
+
+    // Upload new file to storage
+    const fileName = `${Date.now()}_${file.name}`;
+    const filePath = `rubrics/${examId}/${fileName}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('rubrics')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw new Error(uploadError.message);
+    }
+
+    // Get public URL
+    const { data: urlData } = await supabase.storage
+      .from('rubrics')
+      .getPublicUrl(filePath);
+
+    const imageUrl = urlData.publicUrl;
+
+    // Send the file for OCR processing
+    const formData = new FormData();
+    formData.append('file', file);
+
+    console.log('[Debug] Sending file for OCR processing');
+    const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!ocrResponse.ok) {
+      throw new Error('Failed to process OCR');
+    }
+
+    const ocrResult = await ocrResponse.json();
+    const extractedText = ocrResult.text;
+    console.log('[Debug] OCR extracted text:', extractedText?.substring(0, 100) + '...');
+
+    if (!extractedText) {
+      throw new Error('No text could be extracted from the rubric');
+    }
+
+    // Create new rubric record
+    const rubricData = {
+      file_name: fileName,
+      file_type: file.type,
+      file_size: file.size,
+      image_url: imageUrl,
+      exam_id: examId,
+      content: extractedText
+    };
+
+    console.log('[Debug] Creating new rubric record:', rubricData);
+
+    const { data, error } = await supabase
+      .from('rubrics')
+      .insert([rubricData])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Create rubric error:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('[Debug] Rubric upload successful:', data);
+    return data;
+
   } catch (error) {
     console.error('Error in uploadRubric:', error);
     throw error;
   }
 }
 
-export async function getRubric(examId: string): Promise<Rubric | null> {
+export async function getRubric(examId: string): Promise<RubricResponse | null> {
   try {
-    console.log('Getting rubric for exam:', examId);
+    console.log('[Debug] Getting rubric for exam_id:', examId);
     
     const { data, error } = await supabase
       .from('rubrics')
-      .select('*')
+      .select(`
+        id,
+        exam_id,
+        file_name,
+        file_type,
+        file_size,
+        content,
+        preview,
+        created_at,
+        image_url
+      `)
       .eq('exam_id', examId)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
-    
+
     if (error) {
       if (error.code === 'PGRST116') {
-        // No rubric found
-        console.warn('No rubric found for exam:', examId);
-        
-        // Check if there's a default rubric in the exam table
-        const { data: examData, error: examError } = await supabase
-          .from('exams')
-          .select('default_rubric')
-          .eq('id', examId)
-          .single();
-        
-        if (examError) {
-          console.error('Error fetching exam data:', examError);
-          return null;
-        }
-        
-        if (examData && examData.default_rubric) {
-          console.log('Found default rubric in exam data:', examData.default_rubric.substring(0, 100) + '...');
-          return {
-            id: 'default',
-            exam_id: examId,
-            content: examData.default_rubric,
-            image_url: null,
-            created_at: null,
-            created_by: null,
-            file_name: null
-          };
-        }
-        
+        console.log('[Debug] No rubric found for exam_id:', examId);
         return null;
       }
-      console.error('Get rubric error:', error);
-      throw new Error(error.message);
+      throw error;
     }
-    
-    console.log('Rubric retrieved:', data);
-    return data;
+
+    console.log('[Debug] Found rubric:', data);
+
+    // Ensure we're returning all necessary fields
+    return {
+      id: data.id,
+      exam_id: data.exam_id,
+      file_name: data.file_name,
+      content: data.content,
+      preview: data.preview,
+      created_at: data.created_at,
+      file_url: data.image_url,
+      image_url: data.image_url,
+      file_type: data.file_type,
+      file_size: data.file_size
+    };
   } catch (error) {
-    console.error('Error in getRubric:', error);
+    console.error('[Debug] Error getting rubric:', error);
     throw error;
   }
 }
@@ -315,91 +349,82 @@ export async function createSubmission(
   file: File,
   userId: string
 ): Promise<Submission> {
-  console.log('Creating submission:', { examId, studentName, fileName: file.name });
-  
-  // Check if file is an image
-  const isImage = file.type.startsWith('image/');
-  let scriptContent = '';
-  let fileUrl = '';
-  
   try {
-    if (isImage) {
-      // Generate a unique file name to prevent collisions
-      const uniqueFileName = `submissions/${examId}/${Date.now()}_${file.name}`;
-      
-      // Upload image to storage
-      const { data: uploadData, error: uploadError } = await supabase
-        .storage
-        .from('submissions')
-        .upload(uniqueFileName, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-      
-      if (uploadError) {
-        console.error('Upload image error:', uploadError);
-        throw new Error(uploadError.message);
-      }
-      
-      // Get public URL for the image
-      const { data: urlData } = await supabase
-        .storage
-        .from('submissions')
-        .getPublicUrl(uniqueFileName);
-      
-      fileUrl = urlData.publicUrl;
-      
-      // For images, we'll set a placeholder for now
-      // In a real app, you'd use OCR to extract text from the image
-      scriptContent = 'Image file - OCR processing required';
-    } else {
-      // For text files, read the content
-      scriptContent = await file.text();
-      console.log('Extracted text from file:', scriptContent.substring(0, 100) + '...');
+    console.log('Creating submission:', { examId, studentName, fileName: file.name });
+
+    // First get the rubric content
+    const { data: rubric, error: rubricError } = await supabase
+      .from('rubrics')
+      .select('content')
+      .eq('exam_id', examId)
+      .single();
+
+    if (rubricError) {
+      console.error('Error fetching rubric:', rubricError);
+      throw new Error('Failed to fetch rubric');
     }
-    
-    // Get rubric content
-    console.log('Getting rubric for exam:', examId);
-    const rubric = await getRubric(examId);
-    console.log('Rubric retrieved:', rubric);
-    
-    const rubricContent = rubric?.content || '';
-    
-    if (!rubricContent && !rubric?.image_url) {
-      console.warn('No rubric content or image found for exam:', examId);
+
+    if (!rubric?.content) {
+      throw new Error('No rubric content found for this exam');
     }
+
+    // Upload the submission file to storage
+    const uniqueFileName = `submissions/${examId}/${Date.now()}_${file.name}`;
     
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('submissions')
+      .upload(uniqueFileName, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (uploadError) {
+      throw new Error('Failed to upload file');
+    }
+
+    // Get public URL
+    const { data: urlData } = await supabase.storage
+      .from('submissions')
+      .getPublicUrl(uniqueFileName);
+
+    const fileUrl = urlData.publicUrl;
+
+    // Process submission with OCR
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!ocrResponse.ok) {
+      throw new Error('Failed to process OCR');
+    }
+
+    const ocrResult = await ocrResponse.json();
+    const extractedText = ocrResult.text;
+
     // Create submission record
-    console.log('Creating submission record with script content length:', scriptContent.length);
     const { data, error } = await supabase
       .from('submissions')
-      .insert([
-        {
-          exam_id: examId,
-          student_name: studentName,
-          script_file_name: file.name,
-          script_file_url: fileUrl || null,
-          created_by: userId,
-          extracted_text_script: scriptContent,
-          extracted_text_rubric: rubricContent,
-          total_points: 10 // Default value
-        }
-      ])
+      .insert([{
+        exam_id: examId,
+        student_name: studentName,
+        script_file_name: file.name,
+        script_file_url: fileUrl,
+        created_by: userId,
+        extracted_text_script: extractedText,
+        extracted_text_rubric: rubric.content,  // Use the rubric content from the database
+        total_points: 10 // Default value
+      }])
       .select();
-    
+
     if (error) {
-      console.error('Create submission error:', error);
-      throw new Error(error.message);
-    }
-    
-    if (!data || data.length === 0) {
       throw new Error('Failed to create submission');
     }
-    
-    const submission = data[0];
-    console.log('Submission created:', submission);
-    
-    return submission;
+
+    return data[0];
   } catch (error) {
     console.error('Error in createSubmission:', error);
     throw error;
@@ -504,12 +529,14 @@ export async function gradeSubmission(
     
     // Prepare the request payload
     const payload = {
+      submission_id: submissionId,
       answer_text: answerText,
       rubric_text: rubricText,
       strictness_level: strictnessLevel,
     };
     
     console.log('Request payload:', {
+      submissionId: payload.submission_id,
       answerTextLength: payload.answer_text.length,
       rubricTextLength: payload.rubric_text.length,
       strictnessLevel: payload.strictness_level
@@ -522,8 +549,7 @@ export async function gradeSubmission(
         'Accept': 'application/json'
       },
       body: JSON.stringify(payload),
-      // Add timeout to prevent hanging
-      signal: AbortSignal.timeout(60000) // 60 second timeout for grading
+      signal: AbortSignal.timeout(60000)
     });
     
     // Check if response is OK

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import {
   Box, Button, Container, Flex, FormControl, FormLabel, Heading, Input, Text, VStack,
@@ -22,7 +22,7 @@ import {
   getRubric,
   supabase,
   uploadRubric,
-  Rubric
+  Rubric as SupabaseRubric
 } from '../src/services/supabaseClient';
 import { extractTextFromImage } from '../src/services/ocrService';
 import {
@@ -32,6 +32,8 @@ import {
 import { FaChartBar, FaChartPie, FaUserGraduate, FaCheck, FaTimes, FaExclamationTriangle, FaUpload, FaEdit, FaFileAlt, FaTrash, FaArrowLeft } from 'react-icons/fa';
 import Header from '../components/Header';
 import { customColors, getGradients } from '../src/theme/colors';
+import { apiRequest } from '../src/utils/api';
+import path from 'path';
 // import { Submission } from '../types/submission';
 
 interface SubmissionData {
@@ -44,9 +46,34 @@ interface SubmissionData {
   score: number | null;
   total_points: number | null;
   extracted_text_script?: string;
+  extracted_text_rubric?: string;
   image_url?: string;
   feedback?: string;
   // other properties...
+}
+
+interface RubricResponse {
+  id: string;
+  exam_id: string | null;
+  file_name: string | null;
+  content: string | null;
+  preview: string | null;
+  created_at: string | null;
+  file_url?: string;
+  file_type?: string;
+  file_size?: number;
+}
+
+interface Rubric {
+  id: string;
+  exam_id: string | null;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  preview?: string;
+  created_at?: string;
+  content?: string;
+  image_url: string;
 }
 
 const SubmissionsPage: React.FC = () => {
@@ -96,7 +123,7 @@ const SubmissionsPage: React.FC = () => {
     scoreDistribution: [],
     passingRate: 0
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const { isOpen: isRubricOpen, onOpen: onRubricOpen, onClose: onRubricClose } = useDisclosure();
   const [rubric, setRubric] = useState<Rubric | null>(null);
   const [isUploadingRubric, setIsUploadingRubric] = useState(false);
@@ -104,6 +131,9 @@ const SubmissionsPage: React.FC = () => {
   const [rubricError, setRubricError] = useState('');
   const [isUpdatingRubric, setIsUpdatingRubric] = useState(false);
   const [storedUserId, setStoredUserId] = useState<string | null>(null);
+  const [username, setUsername] = useState('');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Simple analytics
   const analytics = {
@@ -148,264 +178,282 @@ const SubmissionsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setStoredUserId(localStorage.getItem('userId'));
-    }
+    const storedUserId = localStorage.getItem('userId');
+    const storedUsername = localStorage.getItem('username');
     
-    if (!storedUserId) {
-      router.push('/login');
+    if (!storedUserId || !storedUsername) {
+      router.replace('/login');
       return;
     }
     
-    setUserId(storedUserId);
-    
-    if (examId) {
-      loadSubmissions(examId as string);
-      loadRubric(examId as string);
+    // Add an auth check using the cookie
+    apiRequest('auth/verify')
+      .then((userData: { id: string; username: string; user_type: string }) => {
+        console.log('[Debug] Auth verification successful:', userData);
+        // If we have examId in the query, load the submissions
+        if (router.query.examId) {
+          loadSubmissions(router.query.examId as string);
+        }
+      })
+      .catch((error: Error) => {
+        console.log('[Debug] Auth verification error:', error);
+        // Only redirect to login for authentication errors
+        if (error.message === 'Authentication required') {
+          console.log('[Debug] Authentication required, redirecting to login');
+          router.replace('/login');
+        } else {
+          // For other errors, just show a toast and continue
+          toast({
+            title: 'Error',
+            description: error.message,
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+          // Still try to load submissions if we have an examId
+          if (router.query.examId) {
+            loadSubmissions(router.query.examId as string);
+          }
+        }
+      });
+  }, [router.query.examId]); // Add router.query.examId as a dependency
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setUsername(localStorage.getItem('username') || '');
     }
-  }, [router, examId]);
+  }, []);
+
+  // Add useEffect to load rubric when page loads or exam ID changes
+  useEffect(() => {
+    const loadInitialData = async () => {
+      if (router.query.examId) {
+        try {
+          // Load submissions
+          await loadSubmissions(router.query.examId as string);
+          
+          // Load rubric
+          const rubricData = await loadRubric(router.query.examId as string);
+          if (rubricData) {
+            console.log('[Debug] Loaded initial rubric:', rubricData);
+            setRubricImageUrl(rubricData.file_url || null);
+            setRubricContent(rubricData.content || null);
+          }
+        } catch (error) {
+          console.error('[Debug] Error loading initial data:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to load exam data',
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+        }
+      }
+    };
+
+    loadInitialData();
+  }, [router.query.examId]); // Dependency on examId ensures reload when exam changes
 
   const loadSubmissions = async (examId: string) => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('exam_id', examId)
-        .order('created_at', { ascending: false });
+      console.log('[Debug] Loading submissions for exam:', examId);
+      const data = await apiRequest(`submissions?exam_id=${examId}`);
+      console.log('[Debug] Submissions loaded successfully:', data);
       
-      if (error) {
-        console.error('Error loading submissions:', error);
+      // Transform the data if needed to match your SubmissionData interface
+      const transformedSubmissions = data.map((submission: any) => ({
+        id: submission.id,
+        student_name: submission.student_name,
+        student_id: submission.student_id,
+        script_file_url: submission.script_file_url,
+        script_file_name: submission.script_file_name,
+        created_at: submission.created_at,
+        score: submission.score,
+        total_points: submission.total_points,
+        extracted_text_script: submission.extracted_text_script,
+        image_url: submission.image_url,
+        feedback: submission.feedback
+      }));
+      
+      setSubmissions(transformedSubmissions);
+      
+      // Calculate analytics after loading submissions
+      calculateAnalytics(transformedSubmissions);
+    } catch (error) {
+      console.error('[Debug] Error loading submissions:', error);
+      // Don't redirect, just show error toast
         toast({
           title: 'Error loading submissions',
-          description: error.message,
+        description: error instanceof Error ? error.message : 'Failed to load submissions',
           status: 'error',
           duration: 5000,
           isClosable: true,
         });
-        return;
-      }
-      
-      console.log('Loaded submissions:', data);
-      setSubmissions(data || []);
-      
-      // Calculate analytics after loading submissions
-      calculateAnalytics(data || []);
-    } catch (error) {
-      console.error('Error:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadRubric = async (examId: string) => {
+  const loadRubric = async (examId: string): Promise<RubricResponse | null> => {
     try {
-      const rubric = await getRubric(examId);
-      setRubric(rubric);
+      console.log('[Debug] Loading rubric for exam:', examId);
+      const rubricData = await getRubric(examId);
       
-      // If rubric has content, set it
-      if (rubric?.content) {
-        setRubricContent(rubric.content);
+      if (rubricData) {
+        console.log('[Debug] Rubric data received:', rubricData);
+        // Transform the data to match our Rubric interface
+        const transformedRubric: Rubric = {
+          id: rubricData.id,
+          file_name: rubricData.file_name || '',
+          file_type: rubricData.file_type || '',
+          image_url: rubricData.file_url || '', // Use file_url instead of image_url
+          exam_id: examId,
+          content: rubricData.content || undefined,
+          preview: rubricData.preview || undefined,
+          created_at: rubricData.created_at || undefined,
+          file_size: rubricData.file_size || 0
+        };
+        
+        setRubric(transformedRubric);
+        setRubricImageUrl(rubricData.file_url || null);
+        setRubricContent(rubricData.content || null);
+        
+        return rubricData; // Return the full rubricData object
       }
+      console.log('[Debug] No rubric found for exam:', examId);
       
-      // If rubric has image URL, set it
-      if (rubric?.image_url) {
-        setRubricImageUrl(rubric.image_url);
-      }
+      // Clear rubric state if none found
+      setRubric(null);
+      setRubricImageUrl(null);
+      setRubricContent(null);
       
-      return rubric?.content || '';
+      return null;
     } catch (error) {
-      console.error('Error loading rubric:', error);
-      return '';
+      console.error('[Debug] Error loading rubric:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load rubric');
+      return null;
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      
-      // Check file type
-      const isTextFile = selectedFile.type.includes('text/') || 
-                         selectedFile.name.endsWith('.txt');
-      const isPdfFile = selectedFile.type.includes('application/pdf') || 
-                        selectedFile.name.endsWith('.pdf');
-      const isImageFile = selectedFile.type.includes('image/jpeg') || 
-                          selectedFile.type.includes('image/jpg') || 
-                          selectedFile.type.includes('image/png') ||
-                          selectedFile.name.match(/\.(jpeg|jpg|png)$/i);
-      
-      if (!isTextFile && !isPdfFile && !isImageFile) {
-        setError('Please upload a text, PDF, or image file (JPEG, JPG, PNG)');
-        setFile(null);
-        return;
-      }
-      
-      setFile(selectedFile);
-      setError(null);
+    const file = e.target.files?.[0];
+    if (file) {
+      console.log('[Debug] File selected:', file);
+      setFile(file);
     }
   };
 
   const handleRubricUpload = async () => {
-    if (!file) {
-      setError('Please select a file to upload');
-      return;
-    }
-    
-    if (!examId || !userId) {
-      setError('Missing exam information');
-      return;
-    }
-    
-    setIsUploading(true);
-    setUploadProgress(10);
-    
     try {
-      // Determine file type
-      let fileType = '';
-      if (file.type.includes('text/') || file.name.endsWith('.txt')) {
-        fileType = 'text';
-      } else if (file.type.includes('application/pdf') || file.name.endsWith('.pdf')) {
-        fileType = 'pdf';
-      } else if (file.type.includes('image/') || file.name.match(/\.(jpeg|jpg|png)$/i)) {
-        fileType = 'image';
-      } else {
-        fileType = 'other';
-      }
-      
-      // Get file size in bytes
-      const fileSize = file.size;
-      
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
+      if (!file) {
+        toast({
+          title: 'Error',
+          description: 'Please select a file to upload',
+          status: 'error',
+          duration: 3000,
+          isClosable: true,
         });
-      }, 300);
-      
-      // Create a unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${examId}_rubric_${Date.now()}.${fileExt}`;
-      const filePath = fileName;
-      
-      // Use the existing 'rubrics' bucket
-      const bucketName = 'rubrics';
-      
-      // Upload file to storage
-      const { error: uploadError } = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-      
-      if (uploadError) {
-        throw new Error(uploadError.message);
+        return;
       }
-      
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucketName)
-        .getPublicUrl(filePath);
-      
-      // Extract text content if it's an image
-      let textContent = '';
-      if (fileType === 'image') {
-        try {
-          textContent = await extractTextFromImage(publicUrl);
-        } catch (ocrError) {
-          console.error('OCR error:', ocrError);
-          // Continue without extracted text
-        }
-      } else if (fileType === 'text') {
-        // For text files, read the content directly
-        textContent = await file.text();
-      }
-      
-      // First check if a rubric already exists for this exam
-      const { data: existingRubric, error: fetchError } = await supabase
+
+      const examId = router.query.examId as string;
+      console.log('[Debug] Uploading rubric for exam_id:', examId);
+
+      // First upload to Supabase Storage
+      const fileName = `${Date.now()}_rubric${path.extname(file.name)}`;
+      const { data: storageData, error: storageError } = await supabase.storage
         .from('rubrics')
-        .select('id')
-        .eq('exam_id', examId)
-        .maybeSingle();
-      
-      if (fetchError) {
-        console.error('Error checking for existing rubric:', fetchError);
+        .upload(`rubrics/${fileName}`, file);
+
+      if (storageError) {
+        console.error('[Debug] Storage upload error:', storageError);
+        throw new Error(`Storage upload failed: ${storageError.message}`);
       }
-      
-      let insertError;
-      
-      if (existingRubric?.id) {
-        // Update existing rubric
-        const { error } = await supabase
-          .from('rubrics')
-          .update({
-            file_name: file.name,
-            file_type: fileType,
-            file_size: fileSize,
-            image_url: publicUrl,
-            content: textContent,
-            created_at: new Date().toISOString()
-          })
-          .eq('id', existingRubric.id);
-        
-        insertError = error;
-      } else {
-        // Insert new rubric
-        const { error } = await supabase
-          .from('rubrics')
-          .insert({
-            exam_id: examId,
-            file_name: file.name,
-            file_type: fileType,
-            file_size: fileSize,
-            image_url: publicUrl,
-            content: textContent,
-            created_at: new Date().toISOString()
-          });
-        
-        insertError = error;
+
+      console.log('[Debug] File uploaded to storage:', storageData);
+
+      // Get the public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('rubrics')
+        .getPublicUrl(`rubrics/${fileName}`);
+
+      const imageUrl = publicUrlData.publicUrl;
+      console.log('[Debug] Generated public URL:', imageUrl);
+
+      // Process OCR
+      const ocrFormData = new FormData();
+      ocrFormData.append('file', file);
+
+      console.log('[Debug] Processing OCR...');
+      const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+        method: 'POST',
+        body: ocrFormData,
+      });
+
+      if (!ocrResponse.ok) {
+        throw new Error('Failed to process OCR');
       }
-      
-      if (insertError) {
-        throw new Error(insertError.message);
-      }
-      
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-      
+
+      const ocrResult = await ocrResponse.json();
+      const extractedText = ocrResult.text;
+      console.log('[Debug] OCR text extracted:', extractedText?.substring(0, 100) + '...');
+
+      // Create the rubric metadata
+      const rubricMetadata = {
+        file_name: fileName,
+        file_type: file.type,
+        file_size: file.size,
+        image_url: imageUrl,
+        exam_id: examId,
+        content: extractedText
+      };
+
+      console.log('[Debug] Sending rubric metadata:', rubricMetadata);
+
+      // Make the API request
+      const response = await apiRequest('api/rubrics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(rubricMetadata),
+      });
+
+      console.log('[Debug] API response:', response);
+
       toast({
-        title: 'Upload successful',
-        description: 'Rubric has been uploaded',
+        title: 'Success',
+        description: 'Rubric uploaded successfully',
         status: 'success',
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
-      
-      // Reload the rubric
-      await loadRubric(examId as string);
-      
+
+      // Refresh the rubric display
+      if (router.query.examId) {
+        loadRubric(router.query.examId as string);
+      }
+
+      // Clear the file input
+      setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+
       // Close the modal
       onRubricClose();
-      
-      // Reset state
-      setFile(null);
+
     } catch (error) {
-      console.error('Upload error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to upload file');
-      
+      console.error('Error uploading rubric:', error);
       toast({
-        title: 'Upload failed',
-        description: error instanceof Error ? error.message : 'Failed to upload file',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to upload rubric',
         status: 'error',
         duration: 5000,
         isClosable: true,
       });
-    } finally {
-      setIsUploading(false);
     }
   };
 
@@ -414,37 +462,31 @@ const SubmissionsPage: React.FC = () => {
       setError('Please provide all required fields');
       return;
     }
-    
-    // Validate student ID format (6 digits)
-    if (!/^\d{6}$/.test(studentId)) {
-      setError('Student ID must be a 6-digit number');
-      return;
-    }
 
     setIsUploading(true);
     setError('');
     setUploadProgress(0);
     
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('student_name', studentName);
-      formData.append('student_id', studentId);
-      
-      if (examId) {
-        // If examId is potentially an array, take the first value
-        const examIdValue = Array.isArray(examId) ? examId[0] : examId;
-        formData.append('exam_id', String(examIdValue));
+      // Get the current user's ID from localStorage
+      const userId = localStorage.getItem('userId');
+      if (!userId) {
+        throw new Error('User not authenticated');
       }
-      
+
+      // Get the rubric content first
+      const rubricData = await loadRubric(examId as string);
+      const rubricContent = rubricData?.content;
+
+      if (!rubricContent) {
+        throw new Error('No rubric content available');
+      }
+
       // Upload file to storage
       const fileName = `${Date.now()}_${file.name}`;
       const filePath = `submissions/${fileName}`;
-      
-      // Use the existing 'submissions' bucket
       const bucketName = 'submissions';
       
-      // Upload file to storage
       const { error: uploadError } = await supabase.storage
         .from(bucketName)
         .upload(filePath, file, {
@@ -468,14 +510,12 @@ const SubmissionsPage: React.FC = () => {
           extractedText = await extractTextFromImage(publicUrl);
         } catch (ocrError) {
           console.error('OCR error:', ocrError);
-          // Continue without extracted text
         }
       } else if (file.type.includes('text/') || file.name.endsWith('.txt')) {
-        // For text files, read the content directly
         extractedText = await file.text();
       }
 
-      // Insert into submissions table - ADD student_id HERE
+      // Insert into submissions table with all required fields
       const { error: insertError } = await supabase
         .from('submissions')
         .insert({
@@ -485,6 +525,8 @@ const SubmissionsPage: React.FC = () => {
           script_file_name: file.name,
           script_file_url: publicUrl,
           extracted_text_script: extractedText,
+          extracted_text_rubric: rubricContent, // Include the rubric content
+          created_by: userId, // Include the user ID
           created_at: new Date().toISOString()
         });
 
@@ -509,10 +551,10 @@ const SubmissionsPage: React.FC = () => {
       // Reset state
       setFile(null);
       setStudentName('');
-      setStudentId(''); // Reset student ID
+      setStudentId('');
     } catch (error) {
       console.error('Error uploading submission:', error);
-      setError('Failed to upload submission. Please try again.');
+      setError(error instanceof Error ? error.message : 'Failed to upload submission');
     } finally {
       setIsUploading(false);
     }
@@ -542,159 +584,14 @@ const SubmissionsPage: React.FC = () => {
           setIsGrading(false);
           return;
         }
-        
-        // Load or use existing rubric content
-        let currentRubricContent = rubricContent;
-        if (!currentRubricContent) {
-          console.log('Rubric not loaded yet, trying to load it');
-          currentRubricContent = await loadRubric(examId as string);
-        }
-        
-        if (!currentRubricContent) {
-          console.error('Failed to load rubric content');
-          toast({
-            title: 'Cannot grade submission',
-            description: 'Missing rubric content',
-            status: 'error',
-            duration: 5000,
-            isClosable: true,
-          });
-          setIsGrading(false);
-          return;
-        }
-        
-        // Check if we have the extracted text from the submission
-        let answerText = '';
-        
-        // First check if we have valid extracted_text_script
-        const needsOcr = !submission.extracted_text_script || 
-                         submission.extracted_text_script.trim() === '' ||
-                         submission.extracted_text_script.includes('OCR') ||
-                         submission.extracted_text_script.includes('Image file');
-        
-        if (!needsOcr && submission.extracted_text_script) {
-          console.log('Using existing extracted_text_script for grading');
-          answerText = submission.extracted_text_script;
-        } 
-        // If OCR is needed, process the image
-        else {
-          console.log('OCR processing needed for this submission');
-          
-          // Determine which URL to use for OCR
-          const imageUrl = submission.image_url || submission.script_file_url;
-          
-          if (!imageUrl) {
-            console.error('No image URL available for OCR');
-            toast({
-              title: 'Cannot grade submission',
-              description: 'No image available for OCR processing',
-              status: 'error',
-              duration: 5000,
-              isClosable: true,
-            });
-            setIsGrading(false);
-            return;
-          }
-          
-          // Show OCR processing toast
-          toast({
-            title: 'OCR Processing',
-            description: 'Extracting text from image...',
-            status: 'info',
-            duration: 5000,
-            isClosable: true,
-          });
-          
-          try {
-            console.log('Calling OCR service with image URL:', imageUrl);
-            // Call OCR service to extract text from the image
-            const extractedText = await extractTextFromImage(imageUrl);
-            
-            if (extractedText && extractedText.trim() !== '' && !extractedText.includes('OCR')) {
-              console.log('Successfully extracted text from image:', extractedText.substring(0, 100) + '...');
-              answerText = extractedText;
-              
-              // Update the submission with the extracted text
-              const { error: updateError } = await supabase
-                .from('submissions')
-                .update({ extracted_text_script: extractedText })
-                .eq('id', submission.id);
-              
-              if (updateError) {
-                console.error('Error updating submission with extracted text:', updateError);
-              } else {
-                console.log('Updated submission with extracted text');
-                // Update the local submission object
-                submission.extracted_text_script = extractedText;
-                
-                // Update the selected submission state
-                setSelectedSubmission({
-                  ...submission,
-                  extracted_text_script: extractedText
-                });
-                
-                toast({
-                  title: 'OCR Complete',
-                  description: 'Successfully extracted text from image',
-                  status: 'success',
-                  duration: 3000,
-                  isClosable: true,
-                });
-              }
-            } else {
-              throw new Error('OCR failed to extract meaningful text from the image');
-            }
-          } catch (ocrError) {
-            console.error('OCR error:', ocrError);
-            toast({
-              title: 'OCR Processing Failed',
-              description: 'Failed to extract text from the submission image',
-              status: 'error',
-              duration: 5000,
-              isClosable: true,
-            });
-            setIsGrading(false);
-            return;
-          }
-        }
-        
-        // Verify we have text to grade
-        if (!answerText || answerText.trim() === '' || answerText.includes('OCR')) {
-          console.error('No valid answer text available for grading');
-          toast({
-            title: 'Cannot grade submission',
-            description: 'No valid answer text available for grading',
-            status: 'error',
-            duration: 5000,
-            isClosable: true,
-          });
-          setIsGrading(false);
-          return;
-        }
-        
-        console.log('Grading submission with:');
-        console.log('- Answer text length:', answerText.length);
-        console.log('- Answer text preview:', answerText.substring(0, 100) + '...');
-        console.log('- Rubric content length:', currentRubricContent.length);
-        
-        // Show grading toast
-        toast({
-          title: 'Grading in Progress',
-          description: 'Analyzing student answer...',
-          status: 'info',
-          duration: 5000,
-          isClosable: true,
-        });
-        
-        // Call the grading API
+
+        // Call the grading API with the submission ID
         const result = await gradeSubmission(
-          submission.id,
-          answerText,
-          currentRubricContent,
+          submission.id,  // Pass the submission ID here
+          submission.extracted_text_script || '',
+          submission.extracted_text_rubric || '',  // Use the stored rubric text
           2 // Default strictness level
         );
-        
-        console.log('Grading result:', result);
         
         // Update the local state with the grading result
         setSelectedSubmission({
@@ -702,7 +599,7 @@ const SubmissionsPage: React.FC = () => {
           score: result.score,
           feedback: result.feedback,
           total_points: result.total_points,
-          extracted_text_script: answerText // Ensure we keep the extracted text
+          extracted_text_script: submission.extracted_text_script // Ensure we keep the extracted text
         });
         
         // Refresh the submissions list to show updated scores
@@ -1107,18 +1004,12 @@ const SubmissionsPage: React.FC = () => {
                       alt="Rubric" 
                       maxH="400px" 
                       mx="auto"
-                      borderRadius="md"
                     />
                   </Box>
                 ) : (
                   <Box 
                     p={4} 
-                    bg={previewBg}
-                    maxH="400px"
-                    overflowY="auto"
-                    whiteSpace="pre-wrap"
-                    fontFamily="monospace"
-                    fontSize="sm"
+                    textAlign="center"
                     color={textColor}
                   >
                     {rubric.content || 'No preview available'}
@@ -1160,7 +1051,7 @@ const SubmissionsPage: React.FC = () => {
     <Box p={5}>
       <Header 
         currentPage="submissions" 
-        username={typeof window !== 'undefined' ? localStorage.getItem('username') || '' : ''}
+        username={username}
         userRole="teacher"
       />
       <Container maxW="container.xl" mt="16">
@@ -1315,9 +1206,10 @@ const SubmissionsPage: React.FC = () => {
                 <FormLabel>Submission File</FormLabel>
                 <Input
                   type="file"
-                  onChange={handleFileChange}
                   accept=".txt,.pdf,.doc,.docx,.jpg,.jpeg,.png"
-                  p={1}
+                  onChange={handleFileChange}
+                  display="none"
+                  ref={fileInputRef}
                 />
                 <Text fontSize="sm" color="gray.500" mt={1}>
                   Accepted formats: .txt, .pdf, .doc, .docx, .jpg, .jpeg, .png
@@ -1532,17 +1424,19 @@ const SubmissionsPage: React.FC = () => {
               )}
               
               <FormControl>
-                <FormLabel>Upload Rubric File</FormLabel>
+                <FormLabel>Upload Rubric</FormLabel>
                 <Input
                   type="file"
-                  accept=".txt,.pdf,.jpg,.jpeg,.png,text/plain,application/pdf,image/jpeg,image/png"
+                  accept="image/*,.pdf"
                   onChange={handleFileChange}
-                  p={1}
+                  display="none"
+                  ref={fileInputRef}
                 />
-                <Text fontSize="sm" color="gray.500" mt={1}>
-                  Supported file types: .txt, .pdf, .jpg, .jpeg, .png
-                </Text>
               </FormControl>
+              
+              <Button onClick={() => fileInputRef.current?.click()}>
+                Select Rubric File
+              </Button>
               
               {file && (
                 <Text>Selected file: {file.name}</Text>

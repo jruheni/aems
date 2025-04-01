@@ -81,8 +81,8 @@ export default function Login() {
       
       // Store user info
       if (typeof window !== 'undefined') {
-        localStorage.setItem('userId', data.user.id);
-        localStorage.setItem('username', data.user.username);
+        localStorage.setItem('userId', data.id);
+        localStorage.setItem('username', data.username);
         localStorage.setItem('userRole', 'teacher');
       }
       
@@ -111,7 +111,7 @@ export default function Login() {
     setIsLoading(true);
     
     try {
-      const data = await apiRequest('auth/student-login', {
+      const response = await apiRequest('auth/student-login', {
         method: 'POST',
         body: JSON.stringify({
           student_id: studentId,
@@ -119,10 +119,10 @@ export default function Login() {
         }),
       });
       
-      // Store user info
+      // Store user info from the nested user object
       if (typeof window !== 'undefined') {
-        localStorage.setItem('userId', data.user.id);
-        localStorage.setItem('username', data.user.username);
+        localStorage.setItem('userId', response.user.id);
+        localStorage.setItem('username', response.user.username);
         localStorage.setItem('userRole', 'student');
       }
       
@@ -170,7 +170,6 @@ export default function Login() {
                   objectFit="contain"
                   maxH="100%"
                   w="auto"
-                  fallbackSrc="https://via.placeholder.com/400x600"
                 />
               </Box>
             </GridItem>
@@ -345,7 +344,6 @@ export default function Login() {
                   objectFit="contain"
                   maxH="100%"
                   w="auto"
-                  fallbackSrc="https://via.placeholder.com/400x600"
                 />
               </Box>
             </GridItem>

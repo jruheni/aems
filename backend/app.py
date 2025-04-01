@@ -23,6 +23,7 @@ import requests
 from supabase import create_client, Client
 import subprocess
 import re
+from functools import wraps
 
 
 
@@ -41,17 +42,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 
-# Configure CORS
-CORS(app, 
-     resources={r"/*": {
-         "origins": ["https://aems-frontend.onrender.com", "http://localhost:3000"],
-         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-         "allow_headers": ["Content-Type", "Authorization"],
-         "supports_credentials": True
-     }},
-     supports_credentials=True)
+# Load secret key from environment or use a default for development
+app.secret_key = secrets.token_hex(16)  # Generate a random secret key
+
+# Configure session
+app.config.update(
+    SESSION_COOKIE_SECURE=False,  # Allow non-HTTPS for development
+    SESSION_COOKIE_HTTPONLY=False,  # Allow JavaScript access
+    SESSION_COOKIE_SAMESITE=None,  # Allow cross-origin requests
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+    SESSION_COOKIE_DOMAIN=None,  # Allow any domain
+    SESSION_COOKIE_PATH='/',  # Allow any path
+    SESSION_COOKIE_BROWSER=True  # Allow browser access
+)
+
+# Configure CORS with more permissive settings
+CORS(app,
+    resources={r"/*": {
+        "origins": "*",  # Allow all origins
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": "*",  # Allow all headers
+        "expose_headers": "*",
+        "supports_credentials": True,
+        "max_age": 3600
+    }},
+    supports_credentials=True
+)
 
 app.register_blueprint(ocr_bp)
 app.register_blueprint(grading_bp)
@@ -108,8 +125,11 @@ def register():
         logger.error(f"Registration error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/auth/login', methods=['POST'])
+@app.route('/auth/login', methods=['POST', 'OPTIONS'])
 def login():
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     data = request.json
     username = data.get('username')
     password = data.get('password')
@@ -124,16 +144,84 @@ def login():
         if not user:
             return jsonify({"error": "Invalid credentials"}), 401
         
-        return jsonify(user), 200
+        # Set up the session
+        session.permanent = True
+        session.modified = True  # Ensure the session is saved
+        session['user_id'] = user.get('id')
+        session['username'] = user.get('username')
+        session['role'] = user.get('role', 'teacher')
+        
+        # Log session data for debugging
+        logger.info(f"Login successful. Session data: {dict(session)}")
+        
+        # Set session cookie in response
+        response = jsonify(user)
+        return response, 200
+        
     except Exception as e:
         logger.error(f"Login error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Logout the user by clearing the session"""
+    try:
+        session.clear()
+        return jsonify({"message": "Logged out successfully"}), 200
+    except Exception as e:
+        logger.error(f"Logout error: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/auth/student-login', methods=['POST', 'OPTIONS'])  # Add OPTIONS method
+def student_login():
+    # For OPTIONS requests (preflight)
+    if request.method == 'OPTIONS':
+        return '', 204
+        
+    try:
+        data = request.get_json()
+        student_id = data.get('student_id')
+        password = data.get('password')
+
+        if not student_id or not password:
+            return jsonify({"error": "Missing student_id or password"}), 400
+
+        logger.info(f"Attempting student login for ID: {student_id}")
+        student = supabase.authenticate_student(student_id, password)
+        
+        if student:
+            # Set session data
+            session.permanent = True  # Make session permanent
+            session.modified = True   # Ensure session is saved
+            session['user_id'] = student['id']
+            session['username'] = student['username']  # Add username to session
+            session['user_type'] = 'student'
+            session['student_id'] = student['student_id']
+            
+            # Log session data for debugging
+            logger.info(f"Student login successful. Session data: {dict(session)}")
+            
+            return jsonify({
+                "message": "Login successful",
+                "user": {
+                    "id": student['id'],
+                    "username": student['username'],
+                    "student_id": student['student_id'],
+                    "user_type": "student"
+                }
+            })
+        else:
+            logger.info("Student authentication failed")
+            return jsonify({"error": "Invalid credentials"}), 401
+
+    except Exception as e:
+        logger.error(f"Error in student_login: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
 # Exam management endpoints
 @app.route('/api/exams', methods=['GET'])
 def get_exams():
-    user_id = request.args.get('user_id')
-    
+    user_id = session.get('user_id')
     try:
         exams = supabase.get_exams(user_id)
         return jsonify(exams), 200
@@ -158,59 +246,164 @@ def create_exam():
         logger.error(f"Create exam error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/exams/<exam_id>', methods=['DELETE'])
+def delete_exam(exam_id):
+    try:
+        logger.info(f"[Debug] Attempting to delete exam with ID: {exam_id}")
+        
+        # First, delete all submissions for this exam
+        submissions_response = requests.delete(
+            f"{supabase.SUPABASE_URL}/rest/v1/submissions?exam_id=eq.{exam_id}",
+            headers=supabase.headers
+        )
+        logger.info(f"[Debug] Submissions deletion status: {submissions_response.status_code}")
+        
+        # Delete any rubrics associated with this exam
+        rubrics_response = requests.delete(
+            f"{supabase.SUPABASE_URL}/rest/v1/rubrics?exam_id=eq.{exam_id}",
+            headers=supabase.headers
+        )
+        logger.info(f"[Debug] Rubrics deletion status: {rubrics_response.status_code}")
+        
+        # Finally, delete the exam
+        exam_response = requests.delete(
+            f"{supabase.SUPABASE_URL}/rest/v1/exams?id=eq.{exam_id}",
+            headers=supabase.headers
+        )
+        logger.info(f"[Debug] Exam deletion status: {exam_response.status_code}")
+        
+        if exam_response.status_code == 204:  # Successful deletion returns 204 No Content
+            logger.info(f"[Debug] Successfully deleted exam {exam_id} and related records")
+            return jsonify({"message": "Exam and related records deleted successfully"}), 200
+        else:
+            logger.error(f"Failed to delete exam: {exam_response.text}")
+            return jsonify({"error": "Failed to delete exam"}), 500
+            
+    except Exception as e:
+        logger.error(f"Delete exam error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({"error": f"Failed to delete exam: {str(e)}"}), 500
+
 # Rubric management endpoints
 @app.route('/api/rubrics', methods=['POST'])
 def upload_rubric():
-    exam_id = request.form.get('exam_id')
-    file = request.files.get('file')
-    
-    if not exam_id or not file:
-        return jsonify({"error": "Exam ID and file are required"}), 400
-    
     try:
-        # Save file temporarily
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        logger.info("[Debug] Handling rubric upload")
+        data = request.get_json()
+        logger.info(f"[Debug] Request data: {data}")
         
-        # Get file info
-        file_size = os.path.getsize(file_path)
-        file_type = file.content_type
+        file_name = data.get('file_name')
+        file_type = data.get('file_type')
+        file_size = data.get('file_size')
+        image_url = data.get('image_url')
+        exam_id = data.get('exam_id')
+        content = data.get('content')
         
-        # Read file content for preview
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            preview = content[:500]  # First 500 characters as preview
+        if not file_name or not image_url or not exam_id:
+            logger.error("[Debug] Missing required fields")
+            return jsonify({"error": "File name, URL, and exam ID are required"}), 400
         
-        # Upload rubric to Supabase
-        rubric = supabase.upload_rubric(
-            exam_id=exam_id,
-            file_name=filename,
-            file_type=file_type,
-            file_size=file_size,
-            preview=preview,
-            content=content
+        # First, delete any existing rubric for this exam
+        logger.info(f"[Debug] Checking for existing rubric for exam_id: {exam_id}")
+        delete_response = requests.delete(
+            f"{supabase.SUPABASE_URL}/rest/v1/rubrics",
+            headers=supabase.headers,
+            params={"exam_id": f"eq.{exam_id}"}
         )
         
-        # Clean up temporary file
-        os.remove(file_path)
+        if delete_response.status_code not in [200, 204]:
+            logger.error(f"[Debug] Error deleting existing rubric: {delete_response.text}")
+            # Continue anyway as there might not be an existing rubric
         
-        return jsonify(rubric), 201
+        # Create the data dictionary with correct column names
+        rubric_data = {
+            "file_name": file_name,
+            "file_type": file_type,
+            "file_size": file_size,
+            "image_url": image_url,
+            "exam_id": exam_id,
+            "content": content
+        }
+        
+        logger.info(f"[Debug] Creating new rubric with data: {rubric_data}")
+        
+        # Upload rubric metadata to Supabase
+        response = requests.post(
+            f"{supabase.SUPABASE_URL}/rest/v1/rubrics",
+            headers={
+                **supabase.headers,
+                'Prefer': 'return=representation'
+            },
+            json=rubric_data
+        )
+        
+        if response.status_code not in [201, 200]:
+            logger.error(f"Failed to upload rubric: {response.text}")
+            return jsonify({"error": "Failed to upload rubric"}), 500
+            
+        rubric = response.json()[0] if isinstance(response.json(), list) else response.json()
+        
+        logger.info(f"[Debug] Rubric uploaded successfully: {rubric['id']}")
+        return jsonify({
+            "message": "Rubric uploaded successfully",
+            "rubric": {
+                "id": rubric.get('id'),
+                "file_name": file_name,
+                "file_type": file_type,
+                "file_size": file_size,
+                "image_url": image_url,
+                "exam_id": exam_id,
+                "content": content
+            }
+        }), 201
+        
     except Exception as e:
-        logger.error(f"Upload rubric error: {str(e)}", exc_info=True)
+        logger.error(f"Upload rubric error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/rubrics/<exam_id>', methods=['GET'])
 def get_rubric(exam_id):
     try:
-        rubric = supabase.get_rubric(exam_id)
+        logger.info(f"[Debug] Fetching rubric for exam_id: {exam_id}")
         
-        if not rubric:
-            return jsonify({"error": "Rubric not found"}), 404
+        # Get rubric from Supabase
+        response = requests.get(
+            f"{supabase.SUPABASE_URL}/rest/v1/rubrics?exam_id=eq.{exam_id}",
+            headers=supabase.headers
+        )
         
-        return jsonify(rubric), 200
+        logger.info(f"[Debug] Supabase response status: {response.status_code}")
+        logger.info(f"[Debug] Supabase response: {response.json() if response.status_code == 200 else 'No data'}")
+        
+        if response.status_code != 200:
+            logger.error(f"Failed to fetch rubric: {response.text}")
+            return jsonify({"error": "Failed to fetch rubric"}), 500
+            
+        rubrics = response.json()
+        
+        if not rubrics:
+            logger.info("[Debug] No rubric found for this exam")
+            return jsonify({"error": "No rubric uploaded yet"}), 404
+            
+        # Return the most recent rubric if multiple exist
+        rubric = rubrics[0]
+        
+        return jsonify({
+            "id": rubric.get('id'),
+            "exam_id": rubric.get('exam_id'),
+            "file_name": rubric.get('file_name'),
+            "content": rubric.get('content'),
+            "preview": rubric.get('preview'),
+            "created_at": rubric.get('created_at'),
+            "image_url": rubric.get('image_url'),
+            "file_type": rubric.get('file_type'),
+            "file_size": rubric.get('file_size')
+        }), 200
+        
     except Exception as e:
-        logger.error(f"Get rubric error: {str(e)}", exc_info=True)
+        logger.error(f"Get rubric error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 # Submission management endpoints
@@ -256,14 +449,79 @@ def create_submission():
         logger.error(f"Create submission error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/submissions/<exam_id>', methods=['GET'])
-def get_submissions(exam_id):
+@app.route('/submissions', methods=['GET', 'OPTIONS'])
+def get_submissions():
+    if request.method == 'OPTIONS':
+        return '', 204
+        
     try:
-        submissions = supabase.get_submissions(exam_id)
-        return jsonify(submissions), 200
+        exam_id = request.args.get('exam_id')
+        student_id = request.args.get('student_id')
+        
+        # If neither parameter is provided, return error
+        if not exam_id and not student_id:
+            return jsonify({"error": "Either exam_id or student_id is required"}), 400
+            
+        # If exam_id is provided, get submissions for that exam
+        if exam_id:
+            # First get all submissions for the exam
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/submissions?exam_id=eq.{exam_id}",
+                headers=supabase.headers
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch submissions: {response.text}")
+                return jsonify({"error": "Failed to fetch submissions"}), 500
+                
+            submissions = response.json()
+            
+            # For each submission, get the student details if student_id exists
+            transformed_submissions = []
+            for submission in submissions:
+                student_id = submission.get('student_id')
+                student_name = 'Unknown Student'
+                
+                if student_id:
+                    student_response = requests.get(
+                        f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+                        headers=supabase.headers
+                    )
+                    if student_response.status_code == 200 and student_response.json():
+                        student = student_response.json()[0]
+                        student_name = student.get('name', 'Unknown Student')
+                
+                transformed_submissions.append({
+                    **submission,
+                    'student_name': student_name
+                })
+            
+            return jsonify(transformed_submissions), 200
+            
+        # If student_id is provided, get submissions for that student
+        else:
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/submissions?student_id=eq.{student_id}&select=*,exam:exams(id,title,description)",
+                headers=supabase.headers
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch submissions: {response.text}")
+                return jsonify({"error": "Failed to fetch submissions"}), 500
+                
+            submissions = response.json()
+            transformed_submissions = [{
+                **submission,
+                'exam_title': submission['exam']['title'] if submission.get('exam') else 'Untitled Exam',
+                'exam_description': submission['exam']['description'] if submission.get('exam') else '',
+            } for submission in submissions]
+            
+            return jsonify(transformed_submissions), 200
+            
     except Exception as e:
-        logger.error(f"Get submissions error: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error getting submissions: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/api/submissions/<submission_id>/score', methods=['PUT'])
 def update_submission_score(submission_id):
@@ -285,6 +543,67 @@ def update_submission_score(submission_id):
         logger.error(f"Update submission score error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/auth/verify', methods=['GET', 'OPTIONS'])
+def verify_auth():
+    if request.method == 'OPTIONS':
+        logger.info("[Debug] Handling OPTIONS request for /auth/verify")
+        return '', 204
+        
+    try:
+        logger.info("[Debug] Verifying authentication")
+        logger.info(f"[Debug] Current session: {dict(session)}")
+        
+        # Check if user is logged in
+        user_id = session.get('user_id')
+        user_type = session.get('user_type')
+        
+        logger.info(f"[Debug] User ID from session: {user_id}")
+        logger.info(f"[Debug] User type from session: {user_type}")
+        
+        if not user_id:
+            logger.info("[Debug] No user_id found in session")
+            return jsonify({"error": "User not found"}), 404
+
+        if user_type == 'student':
+            logger.info(f"[Debug] Verifying student with ID: {session.get('student_id')}")
+            # Get student details from Supabase using student_id
+            student_id = session.get('student_id')
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+                headers=supabase.headers
+            )
+            
+            logger.info(f"[Debug] Supabase response status: {response.status_code}")
+            logger.info(f"[Debug] Supabase response: {response.json() if response.status_code == 200 else 'No data'}")
+            
+            if response.status_code != 200 or not response.json():
+                logger.info("[Debug] Student not found in database")
+                return jsonify({"error": "Student not found"}), 404
+                
+            student = response.json()[0]
+            result = {
+                "id": student['id'],
+                "username": student['name'],
+                "student_id": student['student_id'],
+                "user_type": "student"
+            }
+            logger.info(f"[Debug] Returning student data: {result}")
+            return jsonify(result)
+        else:
+            # For teachers, just return the session data
+            result = {
+                "id": user_id,
+                "username": session.get('username'),
+                "user_type": "teacher"
+            }
+            logger.info(f"[Debug] Returning teacher data: {result}")
+            return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[Debug] Error in verify_auth: {str(e)}")
+        logger.error(f"[Debug] Traceback: {traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
 @app.route('/')
 def home():
     logger.info("Home endpoint called")
@@ -295,16 +614,6 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'False') == 'True'
 
-# Configure CORS
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["http://localhost:3000"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"],
-        "expose_headers": ["Content-Type"]
-    }
-})
-
 @app.route('/api/test', methods=['GET'])
 def test_api():
     """Simple endpoint to test if the API is running"""
@@ -313,73 +622,58 @@ def test_api():
 
 @app.route('/api/grade', methods=['POST'])
 def grade_submission():
-    """Grade a submission using Mistral AI"""
     try:
-        logger.info("Grade API endpoint called")
-        
-        # Log request headers for debugging
-        logger.info(f"Request headers: {dict(request.headers)}")
-        
-        # Check if the request has JSON content
-        if not request.is_json:
-            logger.error("Request does not contain JSON")
-            return jsonify({"error": "Request must be JSON"}), 400
-        
-        # Get the data from the request
         data = request.get_json()
-        logger.info(f"Request data: {data}")
+        submission_id = data.get('submission_id')
         
-        # Check if the required fields are present
-        if 'answer_text' not in data:
-            logger.error("Missing answer_text field")
-            return jsonify({"error": "Missing required field: answer_text"}), 400
-            
-        if 'rubric_text' not in data:
-            logger.error("Missing rubric_text field")
-            return jsonify({"error": "Missing required field: rubric_text"}), 400
-        
-        # Validate the answer text
-        answer_text = data['answer_text']
-        if not answer_text or not answer_text.strip():
-            logger.error("Empty answer_text")
-            return jsonify({"error": "answer_text cannot be empty"}), 400
-        
-        # Check if the answer text is too short (likely OCR failed)
-        if len(answer_text.strip()) < 20:
-            logger.error(f"Answer text too short: '{answer_text}'")
-            return jsonify({
-                "error": "The provided answer text is too short. This may indicate OCR processing failed."
-            }), 400
-        
-        # Get the strictness level (default to 2 if not provided)
-        strictness_level = data.get('strictness_level', 2)
-        
-        # Call the grading function
-        logger.info("Calling grade_with_mistral function")
-        result = grade_with_mistral(
-            data['answer_text'],
-            data['rubric_text'],
-            strictness_level
+        if not submission_id:
+            return jsonify({"error": "submission_id is required"}), 400
+
+        # Get the submission with its texts
+        response = requests.get(
+            f"{supabase.SUPABASE_URL}/rest/v1/submissions?id=eq.{submission_id}",
+            headers=supabase.headers
         )
-        
-        logger.info(f"Grading result: {result}")
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch submission"}), 500
+
+        submissions = response.json()
+        if not submissions:
+            return jsonify({"error": "Submission not found"}), 404
+
+        submission = submissions[0]
+        answer_text = submission.get('extracted_text_script')
+        rubric_text = submission.get('extracted_text_rubric')
+
+        if not answer_text or not rubric_text:
+            return jsonify({"error": "Missing required texts for grading"}), 400
+
+        # Grade using the stored texts
+        result = grade_with_mistral(
+            answer_text,
+            rubric_text,
+            data.get('strictness_level', 2)
+        )
+
+        # Update the submission with the grade
+        update_response = requests.patch(
+            f"{supabase.SUPABASE_URL}/rest/v1/submissions?id=eq.{submission_id}",
+            headers=supabase.headers,
+            json={
+                "score": result.get('score'),
+                "feedback": result.get('feedback'),
+                "total_points": result.get('total_points', 10)
+            }
+        )
+
+        if update_response.status_code != 204:
+            logger.error("Failed to update submission with grade")
+
         return jsonify(result)
-    
-    except ValueError as ve:
-        # Handle specific value errors (like OCR issues)
-        error_message = str(ve)
-        logger.error(f"Value error: {error_message}")
-        
-        if "OCR" in error_message:
-            # This is an OCR-related error
-            return jsonify({"error": error_message}), 400
-        else:
-            # Other value errors
-            return jsonify({"error": error_message}), 400
-    
+
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Grading error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.errorhandler(404)
@@ -392,6 +686,95 @@ def handle_exception(e):
     logger.error(f"Unhandled exception: {str(e)}")
     logger.error(traceback.format_exc())
     return jsonify({"error": str(e)}), 500
+
+# Add this new endpoint for getting student data
+@app.route('/students', methods=['GET', 'OPTIONS'])
+def get_student():
+    if request.method == 'OPTIONS':
+        return '', 204
+        
+    try:
+        student_id = request.args.get('student_id')
+        logger.info(f"[Debug] Getting student data for ID: {student_id}")
+        
+        if not student_id:
+            return jsonify({"error": "student_id is required"}), 400
+            
+        # Try to find student by either database id or student_id
+        if student_id.isdigit():
+            # If it's a number, try database id first
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/students?id=eq.{student_id}",
+                headers=supabase.headers
+            )
+            
+            if response.status_code != 200 or not response.json():
+                # If not found by id, try student_id
+                response = requests.get(
+                    f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+                    headers=supabase.headers
+                )
+        else:
+            # If it's not a number, use student_id
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+                headers=supabase.headers
+            )
+        
+        logger.info(f"[Debug] Supabase response status: {response.status_code}")
+        
+        if response.status_code != 200 or not response.json():
+            return jsonify({"error": "Student not found"}), 404
+            
+        student = response.json()[0]
+        result = {
+            "id": student['id'],
+            "student_id": student['student_id'],
+            "name": student['name'],
+            "email": student['email']
+        }
+        
+        logger.info(f"[Debug] Returning student data: {result}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"[Debug] Error getting student: {str(e)}")
+        logger.error(f"[Debug] Traceback: {traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/ocr/extract-text', methods=['POST'])
+def extract_text():
+    """Extract text from uploaded file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Save file temporarily
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+
+        try:
+            # Extract text using OCR
+            extracted_text = extract_text_from_image(filepath)
+            
+            if not extracted_text:
+                return jsonify({'error': 'No text could be extracted'}), 400
+
+            return jsonify({'text': extracted_text}), 200
+
+        finally:
+            # Clean up temporary file
+            if os.path.exists(filepath):
+                os.remove(filepath)
+
+    except Exception as e:
+        logger.error(f"Error extracting text: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Check if MISTRAL_API_KEY is set

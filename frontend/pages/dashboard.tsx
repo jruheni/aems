@@ -98,6 +98,10 @@ const Dashboard: React.FC = () => {
   const [storedUserId, setStoredUserId] = useState<string | null>(null);
   const [storedUsername, setStoredUsername] = useState<string | null>(null);
 
+  // Add these to your state declarations
+  const [examToDelete, setExamToDelete] = useState<Exam | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setStoredUserId(localStorage.getItem('userId'));
@@ -121,8 +125,24 @@ const Dashboard: React.FC = () => {
         setUsername(storedUsername);
         loadExams(storedUserId);
       })
-      .catch(() => {
-        router.replace('/login');
+      .catch((error) => {
+        // Only redirect to login for authentication errors
+        if (error.message === 'Authentication required') {
+          router.replace('/login');
+        } else {
+          // For other errors, just show a toast and try to continue
+          toast({
+            title: 'Error',
+            description: error.message,
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+          // Still try to set the user data and load exams
+          setUserId(storedUserId);
+          setUsername(storedUsername);
+          loadExams(storedUserId);
+        }
       });
   }, [router]);
   
@@ -138,6 +158,7 @@ const Dashboard: React.FC = () => {
       const data = await getExams(userId);
       setExams(data);
     } catch (error) {
+      // Don't redirect, just show error toast
       toast({
         title: 'Error loading exams',
         description: error instanceof Error ? error.message : 'Failed to load exams',
@@ -372,6 +393,61 @@ const Dashboard: React.FC = () => {
   // Add this to navigate to the student report
   const viewStudentReport = (studentId: string, studentName: string) => {
     router.push(`/student-report?id=${encodeURIComponent(studentId)}&name=${encodeURIComponent(studentName)}`);
+  };
+
+  // Add this function near your other handler functions
+  const handleDeleteExam = async (exam: Exam) => {
+    try {
+      const response = await apiRequest(`api/exams/${exam.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response) {
+        // Remove the exam from the state
+        setExams(exams.filter(e => e.id !== exam.id));
+        
+        // Show success message
+        toast({
+          title: 'Exam deleted',
+          description: `${exam.title} has been deleted successfully`,
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        
+        // Refresh analytics
+        if (userId) {
+          loadAnalyticsData(userId);
+        }
+      }
+    } catch (error) {
+      console.error('Delete exam error:', error);
+      toast({
+        title: 'Error deleting exam',
+        description: error instanceof Error 
+          ? `Failed to delete exam: ${error.message}` 
+          : 'Failed to delete exam. Please try again.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Add this function to handle delete confirmation
+  const handleDeleteClick = (exam: Exam, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExamToDelete(exam);
+    setIsDeleteDialogOpen(true);
+  };
+
+  // Add this function to handle confirmed deletion
+  const handleConfirmDelete = async () => {
+    if (examToDelete) {
+      await handleDeleteExam(examToDelete);
+      setIsDeleteDialogOpen(false);
+      setExamToDelete(null);
+    }
   };
 
   return (
@@ -796,9 +872,7 @@ const Dashboard: React.FC = () => {
                             setNewExamDescription(exam.description || '');
                             onOpen();
                           }}>Rename</MenuItem>
-                          <MenuItem onClick={() => {
-                            // Implement delete functionality
-                          }}>Delete</MenuItem>
+                          <MenuItem onClick={(e) => handleDeleteClick(exam, e)}>Delete</MenuItem>
                         </MenuList>
                       </Menu>
                     </HStack>
@@ -841,6 +915,25 @@ const Dashboard: React.FC = () => {
               Submit
             </Button>
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={isDeleteDialogOpen} onClose={() => setIsDeleteDialogOpen(false)}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Delete Exam</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            Are you sure you want to delete "{examToDelete?.title}"? This action cannot be undone.
+          </ModalBody>
+          <ModalFooter>
+            <Button colorScheme="red" mr={3} onClick={handleConfirmDelete}>
+              Delete
+            </Button>
+            <Button variant="ghost" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

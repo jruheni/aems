@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -47,6 +47,7 @@ import {
   Spinner,
   Link,
   useToast,
+  useColorMode,
 } from '@chakra-ui/react';
 import { FaBook, FaChartLine, FaFileAlt, FaUser, FaChevronDown, FaDownload, FaEye } from 'react-icons/fa';
 import { Line, Bar, Radar } from 'react-chartjs-2';
@@ -93,6 +94,8 @@ interface Submission {
   score: number | null;
   feedback: string | null;
   total_points: number;
+  exam_title?: string;
+  exam_description?: string;
   exams?: {
     title: string;
     description: string;
@@ -102,32 +105,42 @@ interface Submission {
 interface Student {
   id: string;
   name: string;
-  student_id: string;
+  student_id: string;  // Note: using snake_case to match backend
   email: string;
 }
 
-export default function StudentDashboard() {
+const StudentDashboard = () => {
+  // 1. All useContext hooks
+  const { colorMode } = useColorMode();
   const router = useRouter();
-  const [student, setStudent] = useState<Student | null>(null);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   
+  // 2. All useState hooks
+  const [studentId, setStudentId] = useState<string | null>(null);
+  const [studentName, setStudentName] = useState<string | null>(null);
+  const [studentData, setStudentData] = useState<Student | null>(null);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // 3. All useRef hooks
+  const someRef = useRef();
+  
+  // 4. All color mode values
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
   const textColor = useColorModeValue('gray.600', 'gray.400');
   const headingColor = useColorModeValue('gray.800', 'white');
   
-  const [studentId, setStudentId] = useState<string | null>(null);
-  const [studentName, setStudentName] = useState<string | null>(null);
-  
+  // 4. useEffect hooks
   useEffect(() => {
     const storedUserId = localStorage.getItem('userId');
     const storedUsername = localStorage.getItem('username');
+    const storedUserRole = localStorage.getItem('userRole');
     
-    if (!storedUserId || !storedUsername) {
+    if (!storedUserId || !storedUsername || storedUserRole !== 'student') {
       router.replace('/login');
       return;
     }
@@ -137,36 +150,63 @@ export default function StudentDashboard() {
       .then(() => {
         setStudentId(storedUserId);
         setStudentName(storedUsername);
-        loadStudentData(storedUserId);
+        loadStudentData();
       })
-      .catch(() => {
-        router.replace('/login');
+      .catch((error) => {
+        // Only redirect to login if it's an authentication error
+        if (error.message === 'Authentication required') {
+          router.replace('/login');
+        } else {
+          // For other errors, just show a toast
+          toast({
+            title: 'Error',
+            description: error.message,
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+        }
       });
   }, [router]);
   
-  const loadStudentData = async (id: string) => {
+  // 5. useCallback hooks
+  const loadStudentData = useCallback(async () => {
     try {
-      // Fetch student details
-      const { data: studentData, error: studentError } = await apiRequest('students', {
-        method: 'GET',
-        params: { student_id: id },
-        credentials: 'include'
-      });
+      // First get auth data
+      const authResponse = await apiRequest('auth/verify');
+      console.log('[Debug] Auth response:', authResponse);
 
-      if (studentError || !studentData) {
-        throw new Error('Failed to load student data');
+      if (!authResponse || !authResponse.student_id) {
+        console.error('No student_id in auth response:', authResponse);
+        throw new Error('Authentication data missing');
       }
 
-      setStudent(studentData);
-
-      // Fetch all submissions for this student
-      const { data: submissionsData, error: submissionsError } = await apiRequest('submissions', {
-        method: 'GET',
-        params: { student_id: id },
-        credentials: 'include'
+      // Then get student data using the student_id
+      const studentData = await apiRequest(`students?student_id=${authResponse.student_id}`);
+      console.log('[Debug] Student data:', studentData);
+      
+      if (!studentData) {
+        console.error('No student data received');
+        throw new Error('No student data received');
+      }
+      
+      // Transform and set the data
+      setStudentData({
+        id: studentData.id,
+        name: studentData.name,
+        email: studentData.email,
+        student_id: studentData.student_id
       });
 
-      if (submissionsError) {
+      // Fetch submissions with proper headers
+      const submissionsData = await apiRequest(`submissions?student_id=${authResponse.student_id}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!submissionsData) {
         throw new Error('Failed to load submissions');
       }
 
@@ -174,17 +214,11 @@ export default function StudentDashboard() {
 
     } catch (error) {
       console.error('Error loading student data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load your data. Please try logging in again.',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      setError('Failed to load student data');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   // Calculate analytics from real data
   const calculateAnalytics = () => {
@@ -233,7 +267,7 @@ export default function StudentDashboard() {
     <Box minH="100vh" bg={useColorModeValue('gray.50', 'gray.900')}>
       <Header 
         currentPage="student-dashboard" 
-        username={student?.name}
+        username={studentData?.name}
         userRole="student"
       />
       <Container maxW="container.xl" py={8} mt="16">
@@ -252,11 +286,11 @@ export default function StudentDashboard() {
         <Box bg={useColorModeValue('white', 'gray.800')} p={6} borderRadius="lg" shadow="md" mb={8}>
           <Flex direction={{ base: 'column', md: 'row' }} align="center" justify="space-between">
             <HStack spacing={4}>
-              <Avatar size="xl" name={student?.name} />
+              <Avatar size="xl" name={studentData?.name} />
               <VStack align="start" spacing={1}>
-                <Heading size="lg">{student?.name}</Heading>
-                <Text>Student ID: {student?.student_id}</Text>
-                <Text>{student?.email}</Text>
+                <Heading size="lg">{studentData?.name}</Heading>
+                <Text>Student ID: {studentData?.student_id}</Text>
+                <Text>{studentData?.email}</Text>
               </VStack>
             </HStack>
             <VStack align={{ base: 'center', md: 'flex-end' }} spacing={2}>
@@ -293,7 +327,7 @@ export default function StudentDashboard() {
                 ) : (
                   submissions.map((submission) => (
                     <Tr key={submission.id}>
-                      <Td>{submission.exams?.title || 'Untitled Exam'}</Td>
+                      <Td>{submission.exam_title || 'Untitled Exam'}</Td>
                       <Td>{new Date(submission.created_at).toLocaleDateString()}</Td>
                       <Td>
                         {submission.score !== null 
@@ -406,4 +440,6 @@ export default function StudentDashboard() {
       </Modal>
     </Box>
   );
-}
+};
+
+export default StudentDashboard;

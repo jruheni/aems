@@ -2,208 +2,119 @@ import React from 'react';
 import {
   Box,
   Flex,
-  Container,
-  Heading,
+  Text,
   Button,
-  HStack,
+  Stack,
   Avatar,
   Menu,
   MenuButton,
   MenuList,
   MenuItem,
-  useColorModeValue,
   useColorMode,
-  Icon,
-  Text,
+  Container,
+  HStack,
+  IconButton,
 } from '@chakra-ui/react';
 import { MoonIcon, SunIcon } from '@chakra-ui/icons';
-import { FaUserShield, FaGraduationCap, FaChevronDown, FaChartLine, FaHistory, FaSignOutAlt } from 'react-icons/fa';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 
 interface HeaderProps {
-  currentPage: 'login' | 'landing' | 'dashboard' | 'student-dashboard' | 'submissions';
+  currentPage: string;
   username?: string;
-  userRole?: 'teacher' | 'student';
+  userRole?: string;
 }
 
 const Header: React.FC<HeaderProps> = ({ currentPage, username, userRole }) => {
+  const { colorMode, toggleColorMode } = useColorMode();
   const router = useRouter();
-  const { toggleColorMode, colorMode } = useColorMode();
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
 
+  // Function to handle logout
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
-      localStorage.clear();
+      localStorage.removeItem('userId');
+      localStorage.removeItem('username');
     }
     router.push('/login');
   };
 
-  const renderNavigationItems = () => {
-    switch (currentPage) {
-      case 'login':
-        return (
-          <HStack spacing={4}>
-            <Button 
-              variant="ghost" 
-              onClick={toggleColorMode}
-            >
-              {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </HStack>
-        );
-
-      case 'landing':
-        return (
-          <HStack spacing={4}>
-            <Button 
-              colorScheme="blue" 
-              onClick={() => router.push('/login')}
-            >
-              Sign In
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={toggleColorMode}
-            >
-              {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </HStack>
-        );
-
-      case 'dashboard':
-        return (
-          <HStack spacing={4}>
-            <Menu>
-              <MenuButton
-                as={Button}
-                rightIcon={<FaChevronDown />}
-                variant="ghost"
-              >
-                <HStack>
-                  <Avatar size="sm" name={username} />
-                  <Text>{username}</Text>
-                </HStack>
-              </MenuButton>
-              <MenuList>
-                <MenuItem icon={<FaUserShield />}>Profile</MenuItem>
-                <MenuItem icon={<FaSignOutAlt />} onClick={handleLogout}>
-                  Logout
-                </MenuItem>
-              </MenuList>
-            </Menu>
-            <Button 
-              variant="ghost" 
-              onClick={toggleColorMode}
-            >
-              {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </HStack>
-        );
-
-      case 'student-dashboard':
-        return (
-          <HStack spacing={4}>
-            <Menu>
-              <MenuButton
-                as={Button}
-                rightIcon={<FaChevronDown />}
-                variant="ghost"
-              >
-                <HStack>
-                  <Avatar size="sm" name={username} />
-                  <Text>{username}</Text>
-                </HStack>
-              </MenuButton>
-              <MenuList>
-                <MenuItem icon={<FaGraduationCap />}>Profile</MenuItem>
-                <MenuItem icon={<FaSignOutAlt />} onClick={handleLogout}>
-                  Logout
-                </MenuItem>
-              </MenuList>
-            </Menu>
-            <Button 
-              variant="ghost" 
-              onClick={toggleColorMode}
-            >
-              {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </HStack>
-        );
-
-      case 'submissions':
-        return (
-          <HStack spacing={4}>
-            <Button 
-              variant="ghost" 
+  return (
+    <>
+      {/* Spacer box to prevent content from going under the fixed header */}
+      <Box height="64px" />
+      
+      {/* Fixed header */}
+      <Box
+        position="fixed"
+        top={0}
+        left={0}
+        right={0}
+        as="nav"
+        bg={colorMode === 'light' ? 'white' : 'gray.800'}
+        boxShadow="sm"
+        zIndex={100}
+        borderBottom="1px"
+        borderColor={colorMode === 'light' ? 'gray.200' : 'gray.700'}
+      >
+        <Container maxW="container.xl">
+          <Flex
+            w="100%"
+            h="64px" // Explicit height
+            px={2}
+            align="center"
+            justify="space-between"
+          >
+            {/* Logo/Brand */}
+            <Text
+              fontSize="lg"
+              fontWeight="bold"
+              cursor="pointer"
               onClick={() => router.push('/dashboard')}
             >
-              Back to Dashboard
-            </Button>
-            <Menu>
-              <MenuButton
-                as={Button}
-                rightIcon={<FaChevronDown />}
-                variant="ghost"
-              >
-                <HStack>
-                  <Avatar size="sm" name={username} />
-                  <Text>{username}</Text>
-                </HStack>
-              </MenuButton>
-              <MenuList>
-                <MenuItem icon={<FaUserShield />}>Profile</MenuItem>
-                <MenuItem icon={<FaSignOutAlt />} onClick={handleLogout}>
-                  Logout
-                </MenuItem>
-              </MenuList>
-            </Menu>
-            <Button 
-              variant="ghost" 
-              onClick={toggleColorMode}
-            >
-              {colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-            </Button>
-          </HStack>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <Box
-      position="fixed"
-      top={0}
-      left={0}
-      right={0}
-      bg={bgColor}
-      borderBottom="1px"
-      borderColor={borderColor}
-      zIndex={1000}
-    >
-      <Container maxW="container.xl">
-        <Flex
-          h="16"
-          alignItems="center"
-          justifyContent="space-between"
-        >
-          <Link href="/" passHref>
-            <Heading
-              as="h1"
-              size="md"
-              cursor="pointer"
-              _hover={{ opacity: 0.8 }}
-            >
               AEMS
-            </Heading>
-          </Link>
-          {renderNavigationItems()}
-        </Flex>
-      </Container>
-    </Box>
+            </Text>
+
+            {/* Right side items */}
+            <HStack spacing={3}>
+              {/* Color mode toggle */}
+              <IconButton
+                aria-label="Toggle color mode"
+                icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+                onClick={toggleColorMode}
+                variant="ghost"
+              />
+
+              {/* User menu */}
+              {username && (
+                <Menu>
+                  <MenuButton
+                    as={Button}
+                    rounded="full"
+                    variant="link"
+                    cursor="pointer"
+                    minW={0}
+                  >
+                    <HStack spacing={2}>
+                      <Avatar
+                        size="sm"
+                        name={username}
+                        bg="blue.500"
+                        color="white"
+                      />
+                      <Text display={{ base: 'none', md: 'block' }}>
+                        {username}
+                      </Text>
+                    </HStack>
+                  </MenuButton>
+                  <MenuList>
+                    <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                  </MenuList>
+                </Menu>
+              )}
+            </HStack>
+          </Flex>
+        </Container>
+      </Box>
+    </>
   );
 };
 
