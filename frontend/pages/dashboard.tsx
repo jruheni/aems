@@ -59,6 +59,7 @@ const Dashboard: React.FC = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [newExamTitle, setNewExamTitle] = useState('');
   const [newExamDescription, setNewExamDescription] = useState('');
+  const [newExamLanguage, setNewExamLanguage] = useState('English');
   const [isRenaming, setIsRenaming] = useState(false);
   const [currentExam, setCurrentExam] = useState<Exam | null>(null);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -284,36 +285,41 @@ const Dashboard: React.FC = () => {
   };
 
   const handleCreateExam = async () => {
+    console.log("--- handleCreateExam function started ---");
     if (!newExamTitle.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Exam title is required',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
+      toast({ title: 'Error', description: 'Exam title is required', status: 'error', duration: 3000, isClosable: true });
       return;
     }
+    if (!userId) {
+       toast({ title: 'Error', description: 'User not identified', status: 'error', duration: 3000, isClosable: true });
+       return;
+    }
+
+    console.log('[Frontend] Creating exam with language:', newExamLanguage);
 
     try {
-      if (userId) {
-        const newExam = await createExam(newExamTitle, newExamDescription, userId);
-        setExams([newExam, ...exams]);
-        onClose();
-        setNewExamTitle('');
-        setNewExamDescription('');
-        
-        toast({
-          title: 'Exam created',
-          description: `${newExamTitle} has been created successfully`,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        
-        // Refresh analytics
-        loadAnalyticsData(userId);
-      }
+      const newExamData = {
+        title: newExamTitle,
+        description: newExamDescription,
+        created_by: userId,
+        language: newExamLanguage
+      };
+      
+      const createdExam = await apiRequest('/api/exams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newExamData),
+      });
+
+      console.log('[Frontend] Received created exam from API:', createdExam);
+
+      // Assuming API returns the created exam including ID and defaults
+      setExams([createdExam, ...exams]);
+      handleModalClose();
+      toast({ title: 'Exam created', status: 'success', duration: 3000, isClosable: true });
+      // Optionally reload analytics data
+      // loadAnalyticsData(userId);
+      
     } catch (error) {
       toast({
         title: 'Error creating exam',
@@ -323,6 +329,15 @@ const Dashboard: React.FC = () => {
         isClosable: true,
       });
     }
+  };
+  
+  const handleModalClose = () => {
+     onClose();
+     setIsRenaming(false);
+     setCurrentExam(null);
+     setNewExamTitle('');
+     setNewExamDescription('');
+     setNewExamLanguage('English'); // Reset language on close
   };
 
   const handleExamClick = (exam: Exam) => {
@@ -457,7 +472,7 @@ const Dashboard: React.FC = () => {
         username={username}
         userRole="teacher"
       />
-      <Container maxW="container.xl" pt="24" pb="10">
+      <Container maxW="container.xl" pt="16" pb="10">
         <VStack spacing={8} align="stretch">
           {/* Welcome Section */}
           <Flex 
@@ -838,7 +853,7 @@ const Dashboard: React.FC = () => {
                     position="relative"
                     onClick={() => handleExamClick(exam)}
                     _hover={{ 
-                      borderColor: customColors.orange,
+                      borderColor: 'green.400',
                       transform: 'translateY(-2px)',
                       boxShadow: 'md'
                     }}
@@ -852,8 +867,14 @@ const Dashboard: React.FC = () => {
                     <Divider mb={4} />
                     
                     <HStack spacing={4} justify="space-between">
-                      <Badge colorScheme="blue" borderRadius="full" px={2}>
-                        Exam
+                      <Badge 
+                        colorScheme={exam.language?.toLowerCase() === 'swahili' ? 'green' : 'blue'} 
+                        borderRadius="full" 
+                        px={3} 
+                        py={1}  
+                        textTransform="capitalize" 
+                      >
+                        {exam.language || 'English'}
                       </Badge>
                       <Menu>
                         <MenuButton
@@ -870,6 +891,7 @@ const Dashboard: React.FC = () => {
                             setCurrentExam(exam);
                             setNewExamTitle(exam.title);
                             setNewExamDescription(exam.description || '');
+                            setNewExamLanguage(exam.language || 'English');
                             onOpen();
                           }}>Rename</MenuItem>
                           <MenuItem onClick={(e) => handleDeleteClick(exam, e)}>Delete</MenuItem>
@@ -884,20 +906,30 @@ const Dashboard: React.FC = () => {
         </VStack>
       </Container>
 
-      <Modal isOpen={isOpen} onClose={onClose}>
+      <Modal isOpen={isOpen} onClose={handleModalClose}>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>{isRenaming ? 'Rename Exam' : 'Create New Exam'}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
-              <FormControl>
+              <FormControl isRequired>
                 <FormLabel>Exam Title</FormLabel>
                 <Input
                   placeholder="Enter exam title"
                   value={newExamTitle}
                   onChange={(e) => setNewExamTitle(e.target.value)}
                 />
+              </FormControl>
+              <FormControl isRequired>
+                <FormLabel>Language</FormLabel>
+                <Select
+                  value={newExamLanguage}
+                  onChange={(e) => setNewExamLanguage(e.target.value)}
+                >
+                  <option value="English">English</option>
+                  <option value="Swahili">Swahili</option>
+                </Select>
               </FormControl>
               <FormControl>
                 <FormLabel>Description (Optional)</FormLabel>
@@ -911,10 +943,14 @@ const Dashboard: React.FC = () => {
           </ModalBody>
 
           <ModalFooter>
-            <Button colorScheme="blue" mr={3} onClick={handleCreateExam}>
-              Submit
+            <Button 
+              colorScheme="blue" 
+              mr={3} 
+              onClick={isRenaming ? () => { /* handleRenameExam logic */ } : handleCreateExam}
+            >
+              {isRenaming ? 'Save Changes' : 'Create Exam'}
             </Button>
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="ghost" onClick={handleModalClose}>Cancel</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

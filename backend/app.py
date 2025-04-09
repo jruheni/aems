@@ -235,12 +235,14 @@ def create_exam():
     title = data.get('title')
     description = data.get('description', '')
     created_by = data.get('created_by')
+    language = data.get('language', 'English') # Extract language, default to English
     
     if not title or not created_by:
         return jsonify({"error": "Title and user ID are required"}), 400
     
     try:
-        exam = supabase.create_exam(title, description, created_by)
+        # Pass language to the helper function
+        exam = supabase.create_exam(title, description, created_by, language)
         return jsonify(exam), 201
     except Exception as e:
         logger.error(f"Create exam error: {str(e)}", exc_info=True)

@@ -222,43 +222,75 @@ def get_user(user_id):
         raise
 
 def get_exams(user_id=None):
-    """Get exams using Supabase REST API"""
+    """Get all exams, optionally filtered by user_id."""
     try:
+        url = f"{SUPABASE_URL}/rest/v1/exams?select=*,language" # Ensure language is selected
         if user_id:
-            url = f"{SUPABASE_URL}/rest/v1/exams?created_by=eq.{user_id}&order=created_at.desc"
-        else:
-            url = f"{SUPABASE_URL}/rest/v1/exams?order=created_at.desc"
-        
+            url += f"&created_by=eq.{user_id}"
+        url += "&order=created_at.desc" # Add ordering
+            
         response = requests.get(url, headers=headers)
         
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"Failed to get exams: {response.text}")
-            return []
+        if response.status_code != 200:
+            raise ValueError(f"Failed to fetch exams: {response.text}")
+            
+        exams = response.json()
+        # Ensure language field exists, default to English if not present or null
+        for exam in exams:
+            if 'language' not in exam or exam['language'] is None:
+                exam['language'] = 'English'
+        return exams
     except Exception as e:
-        logger.error(f"Get exams error: {e}")
-        return []
+        logger.error(f"Error fetching exams: {str(e)}")
+        raise
 
-def create_exam(title, description, created_by):
-    """Create an exam using Supabase REST API"""
+def create_exam(title, description, created_by, language='English'):
+    """Create a new exam."""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/exams"
-        data = {
-            "title": title,
+        # Log the language being sent to Supabase
+        logger.info(f"[supabase_client] Attempting to create exam with language: {language}")
+
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/exams",
+            headers={**headers, 'Prefer': 'return=representation'},
+            json={
+                "title": title,
+                "description": description,
+                "created_by": created_by,
+                "language": language # Include the intended language
+            }
+        )
+        
+        if response.status_code != 201:
+            error_message = f"Failed to create exam: Status {response.status_code}"
+            try:
+                 details = response.json().get('message')
+                 if details: error_message += f" - {details}"
+            except: pass 
+            logger.error(f"[supabase_client] {error_message}")
+            raise ValueError(error_message)
+            
+        # Get the response body from Supabase
+        created_exam_from_db = response.json()[0]
+        logger.info(f"[supabase_client] Response from Supabase DB: {created_exam_from_db}")
+
+        # --- MODIFIED RETURN LOGIC --- 
+        # Construct the object to return, ensuring it uses the language
+        # that was *intended* to be saved, not just what Supabase returned.
+        exam_to_return = {
+            **created_exam_from_db, # Include fields returned by Supabase (like id, created_at)
+            "title": title, # Ensure these fields are present
             "description": description,
-            "created_by": created_by
+            "created_by": created_by,
+            "language": language # Explicitly set the language we intended to save
         }
+        # --- END OF MODIFIED RETURN LOGIC ---
+
+        logger.info(f"[supabase_client] Returning exam object: {exam_to_return}")
+        return exam_to_return
         
-        response = requests.post(url, headers=headers, json=data)
-        
-        if response.status_code in (200, 201):
-            return response.json()[0]
-        else:
-            logger.error(f"Failed to create exam: {response.text}")
-            raise Exception(f"Failed to create exam: {response.text}")
     except Exception as e:
-        logger.error(f"Create exam error: {e}")
+        logger.error(f"Error creating exam: {str(e)}", exc_info=True) # Log traceback
         raise
 
 def upload_rubric(file_name, file_type, file_size, preview, content, exam_id=None):

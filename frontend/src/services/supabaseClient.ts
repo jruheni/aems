@@ -33,6 +33,7 @@ export interface Exam {
   description?: string;
   created_by: string;
   created_at?: string;
+  language?: string;
 }
 
 export interface Rubric {

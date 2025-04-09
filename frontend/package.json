@@ -15,6 +15,7 @@
     "@emotion/styled": "^11.14.0",
     "@supabase/supabase-js": "^2.49.4",
     "@types/recharts": "^1.8.29",
+    "@types/uuid": "^10.0.0",
     "axios": "^1.8.4",
     "bcryptjs": "^3.0.2",
     "chart.js": "^4.4.8",
@@ -31,7 +32,8 @@
     "react-dom": "18.2.0",
     "react-icons": "^4.9.0",
     "recharts": "^2.15.1",
-    "resend": "^4.2.0"
+    "resend": "^4.2.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

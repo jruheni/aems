@@ -38,83 +38,77 @@ const Header: React.FC<HeaderProps> = ({ currentPage, username, userRole }) => {
   };
 
   return (
-    <>
-      {/* Spacer box to prevent content from going under the fixed header */}
-      <Box height="64px" />
-      
-      {/* Fixed header */}
-      <Box
-        position="fixed"
-        top={0}
-        left={0}
-        right={0}
-        as="nav"
-        bg={colorMode === 'light' ? 'white' : 'gray.800'}
-        boxShadow="sm"
-        zIndex={100}
-        borderBottom="1px"
-        borderColor={colorMode === 'light' ? 'gray.200' : 'gray.700'}
-      >
-        <Container maxW="container.xl">
-          <Flex
-            w="100%"
-            h="64px" // Explicit height
-            px={2}
-            align="center"
-            justify="space-between"
+    <Box
+      position="fixed"
+      top={0}
+      left={0}
+      right={0}
+      as="nav"
+      bg={colorMode === 'light' ? 'white' : 'gray.800'}
+      boxShadow="sm"
+      zIndex={100}
+      borderBottom="1px"
+      borderColor={colorMode === 'light' ? 'gray.200' : 'gray.700'}
+    >
+      <Container maxW="container.xl">
+        <Flex
+          w="100%"
+          h="64px" // Explicit height
+          px={2}
+          align="center"
+          justify="space-between"
+        >
+          {/* Logo/Brand */}
+          <Text
+            fontSize="lg"
+            fontWeight="bold"
+            cursor="pointer"
+            onClick={() => router.push('/dashboard')}
           >
-            {/* Logo/Brand */}
-            <Text
-              fontSize="lg"
-              fontWeight="bold"
-              cursor="pointer"
-              onClick={() => router.push('/dashboard')}
-            >
-              AEMS
-            </Text>
+            AEMS
+          </Text>
 
-            {/* Right side items */}
-            <HStack spacing={3}>
-              {/* Color mode toggle */}
-              <IconButton
-                aria-label="Toggle color mode"
-                icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-                onClick={toggleColorMode}
-                variant="ghost"
-              />
+          {/* Right side items */}
+          <HStack spacing={3}>
+            {/* Color mode toggle */}
+            <IconButton
+              aria-label="Toggle color mode"
+              icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+              onClick={toggleColorMode}
+              variant="ghost"
+            />
 
-              {/* User menu */}
-              {username && (
-                <Menu>
-                  <MenuButton
-                    as={Button}
-                    rounded="full"
-                    variant="link"
-                    cursor="pointer"
-                    minW={0}
-                  >
-                    <HStack spacing={2}>
-                      <Avatar
-                        size="sm"
-                        name={username}
-                        bg="blue.500"
-                        color="white"
-                      />
-                      <Text display={{ base: 'none', md: 'block' }}>
-                        {username}
-                      </Text>
-                    </HStack>
-                  </MenuButton>
-                  <MenuList>
-                    <MenuItem onClick={handleLogout}>Logout</MenuItem>
-                  </MenuList>
-                </Menu>
-              )}
-            </HStack>
-          </Flex>
-        </Container>
-      </Box>
-    </>
+            {/* User menu */}
+            {username && (
+              <Menu>
+                <MenuButton
+                  as={Button}
+                  rounded="full"
+                  variant="link"
+                  cursor="pointer"
+                  minW={0}
+                >
+                  <HStack spacing={2}>
+                    <Avatar
+                      size="sm"
+                      name={username}
+                      bg="blue.500"
+                      color="white"
+                    />
+                    <Text display={{ base: 'none', md: 'block' }}>
+                      {username}
+                    </Text>
+                  </HStack>
+                </MenuButton>
+                <MenuList>
+                  <MenuItem onClick={handleLogout}>Logout</MenuItem>
+                </MenuList>
+              </Menu>
+            )}
+          </HStack>
+        </Flex>
+      </Container>
+    </Box>
   );
 };
 
