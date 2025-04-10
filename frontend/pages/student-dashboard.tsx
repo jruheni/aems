@@ -262,9 +262,17 @@ const StudentDashboard = () => {
     const simpleToken = `${studentData.student_id}_${timestamp}`;
     localStorage.setItem('authToken', simpleToken);
     
+    // Construct URL parameters properly
+    const params = new URLSearchParams({
+        id: studentData.student_id,
+        name: studentData.name,
+        student_id: studentData.student_id,
+        token: simpleToken
+    });
+    
     // Pass student_id, name, and authentication token in the URL
     console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
-    router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}&student_id=${encodeURIComponent(studentData.student_id)}&token=${encodeURIComponent(simpleToken)}`);
+    router.push(`/student-report?${params.toString()}`);
   };
 
   if (isLoading) {
