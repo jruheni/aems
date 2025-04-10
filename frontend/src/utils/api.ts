@@ -21,12 +21,18 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
   console.log('[Debug] Making API request to:', url);
   
   try {
-    // Set the cache control headers to prevent caching issues during deployment
-    const headers = {
+    // Set default headers
+    const defaultHeaders = {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
       'Expires': '0',
+      'Accept': 'application/json',
+    };
+
+    // Merge with custom headers
+    const headers = {
+      ...defaultHeaders,
       ...options.headers,
     };
 
@@ -34,6 +40,7 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
       ...options,
       credentials: 'include',
       headers,
+      mode: 'cors'
     });
 
     console.log('[Debug] Response status:', response.status);
@@ -45,23 +52,24 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
     
     if (!response.ok) {
       // Try to parse the error response as JSON
-      const error = await response.json().catch(() => ({ error: 'API request failed' }));
-      console.log('[Debug] Error response:', error);
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { error: 'API request failed' };
+      }
+      console.log('[Debug] Error response:', errorData);
       
-      // If this is the auth/verify endpoint and we got a 404 with "User not found"
-      if (isAuthVerify && response.status === 404 && error.error === 'User not found') {
+      if (isAuthVerify && response.status === 404 && errorData.error === 'User not found') {
         console.log('[Debug] Auth verification failed with "User not found"');
         throw new Error('User not found');
       }
       
-      // Only throw authentication errors if it's a verify auth request
-      // or if it's not the submissions endpoint
       if ((isAuthVerify || !isSubmissionsEndpoint) && response.status === 401) {
         throw new Error('Authentication required');
       }
       
-      // For submissions endpoint or other errors, just throw the error message
-      throw new Error(error.error || 'API request failed');
+      throw new Error(errorData.error || 'API request failed');
     }
 
     const data = await response.json();

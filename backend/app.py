@@ -64,28 +64,54 @@ app.config.update(
 # Configure CORS with more permissive settings for deployed environment
 CORS(app,
     resources={r"/*": {
-        "origins": ["https://aems-frontend.onrender.com", "http://localhost:3000"],  # Specify allowed origins
+        "origins": ["https://aems-frontend.onrender.com", "http://localhost:3000"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "allow_headers": [
+            "Content-Type", 
+            "Authorization", 
+            "X-Requested-With", 
+            "Cache-Control", 
+            "Accept", 
+            "Origin", 
+            "Pragma", 
+            "Expires",
+            "Accept-Encoding", 
+            "Accept-Language",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Headers",
+            "Access-Control-Allow-Methods",
+            "Access-Control-Allow-Credentials"
+        ],
         "expose_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True,  # Critical for sending cookies cross-domain
+        "supports_credentials": True,
         "max_age": 3600
     }},
-    supports_credentials=True  # Critical for sending cookies cross-domain
+    supports_credentials=True
 )
 
-# Add a middleware to set SameSite=None; Secure for all cookies in responses
+# Add CORS headers and handle cookies
 @app.after_request
-def add_samesite_attribute(response):
-    # Get the environment we're running in
-    env = os.environ.get('FLASK_ENV', 'production')
+def after_request(response):
+    origin = request.headers.get('Origin')
+    if origin in ["https://aems-frontend.onrender.com", "http://localhost:3000"]:
+        response.headers.add('Access-Control-Allow-Origin', origin)
     
-    # Only apply this in production
-    if env == 'production':
+    # Add CORS headers
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    response.headers.add('Access-Control-Allow-Headers', 
+        'Content-Type, Authorization, X-Requested-With, Cache-Control, Accept, Origin, '
+        'Pragma, Expires, Accept-Encoding, Accept-Language, '
+        'Access-Control-Allow-Origin, Access-Control-Allow-Headers, '
+        'Access-Control-Allow-Methods, Access-Control-Allow-Credentials')
+    response.headers.add('Access-Control-Allow-Methods', 
+        'GET, POST, PUT, DELETE, OPTIONS')
+    
+    # Handle cookies in production
+    if os.environ.get('FLASK_ENV', 'production') == 'production':
         cookies = [x for x in response.headers.getlist('Set-Cookie')]
         for i in range(len(cookies)):
             if 'SameSite=' not in cookies[i]:
-                cookies[i] = cookies[i].rstrip(';') + '; SameSite=None; Secure;'
+                cookies[i] = f"{cookies[i].rstrip(';')}; SameSite=None; Secure"
         
         # Clear existing cookies and add the modified ones
         response.headers.pop('Set-Cookie', None)
