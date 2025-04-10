@@ -24,6 +24,11 @@ from supabase import create_client, Client
 import subprocess
 import re
 from functools import wraps
+import pdf2image
+import cv2
+import numpy as np
+from PIL import Image
+import pytesseract
 
 
 
@@ -411,42 +416,40 @@ def get_rubric(exam_id):
 # Submission management endpoints
 @app.route('/api/submissions', methods=['POST'])
 def create_submission():
-    exam_id = request.form.get('exam_id')
-    student_name = request.form.get('student_name')
-    created_by = request.form.get('created_by')
-    file = request.files.get('file')
+    # Expect JSON data now, not form data with file
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    exam_id = data.get('exam_id')
+    student_name = data.get('student_name')
+    student_id = data.get('student_id') # Get student_id from payload
+    created_by = data.get('created_by')
+    script_file_name = data.get('script_file_name')
+    extracted_text_script = data.get('extracted_text_script')
     
-    if not exam_id or not student_name or not created_by or not file:
-        return jsonify({"error": "Exam ID, student name, user ID, and file are required"}), 400
+    # Basic validation - include student_id
+    if not all([exam_id, student_name, student_id, created_by, script_file_name, extracted_text_script]):
+        return jsonify({"error": "Missing required fields: exam_id, student_name, student_id, created_by, script_file_name, extracted_text_script"}), 400
     
     try:
-        # Save file temporarily
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        
-        # Read file content
-        with open(file_path, 'r', encoding='utf-8') as f:
-            extracted_text = f.read()
-        
-        # Get rubric text
+        # Get rubric text (remains the same)
         rubric = supabase.get_rubric(exam_id)
         rubric_text = rubric.get('content') if rubric else None
         
-        # Create submission
+        # Create submission using data from payload - pass student_id
         submission = supabase.create_submission(
             exam_id=exam_id,
             student_name=student_name,
-            script_file_name=filename,
+            student_id=student_id, # Pass student_id
+            script_file_name=script_file_name,
             created_by=created_by,
-            extracted_text_script=extracted_text,
+            extracted_text_script=extracted_text_script,
             extracted_text_rubric=rubric_text
         )
         
-        # Clean up temporary file
-        os.remove(file_path)
-        
         return jsonify(submission), 201
+            
     except Exception as e:
         logger.error(f"Create submission error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -482,20 +485,27 @@ def get_submissions():
             transformed_submissions = []
             for submission in submissions:
                 student_id = submission.get('student_id')
-                student_name = 'Unknown Student'
-                
+                # Use the name from the submission record first as default
+                student_name = submission.get('student_name', 'Unknown Student') 
+
+                # Optionally, try to get the official name from the students table if ID exists
                 if student_id:
-                    student_response = requests.get(
-                        f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
-                        headers=supabase.headers
-                    )
-                    if student_response.status_code == 200 and student_response.json():
-                        student = student_response.json()[0]
-                        student_name = student.get('name', 'Unknown Student')
+                    try: # Add try-except for robustness
+                        student_response = requests.get(
+                            f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
+                            headers=supabase.headers,
+                            timeout=5 # Add a timeout
+                        )
+                        if student_response.status_code == 200 and student_response.json():
+                            student = student_response.json()[0]
+                            # If name found in students table, prefer it
+                            student_name = student.get('name', student_name) 
+                    except requests.exceptions.RequestException as req_err:
+                        logger.warning(f"Could not fetch student details for ID {student_id}: {req_err}")
                 
                 transformed_submissions.append({
                     **submission,
-                    'student_name': student_name
+                    'student_name': student_name # Use the determined name
                 })
             
             return jsonify(transformed_submissions), 200
@@ -777,6 +787,33 @@ def extract_text():
     except Exception as e:
         logger.error(f"Error extracting text: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+def preprocess_image(image):
+    """
+    Preprocess the image for better OCR results
+    """
+    # Convert to grayscale if image is in color
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+
+    # Apply adaptive thresholding
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11, 2
+    )
+
+    # Denoise
+    denoised = cv2.fastNlMeansDenoising(binary)
+
+    # Dilation to connect text components
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    dilated = cv2.dilate(denoised, kernel, iterations=1)
+
+    return dilated
 
 if __name__ == '__main__':
     # Check if MISTRAL_API_KEY is set

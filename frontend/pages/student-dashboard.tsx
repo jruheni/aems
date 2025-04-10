@@ -246,8 +246,21 @@ const StudentDashboard = () => {
 
   // Modify the viewPerformanceReport function
   const viewPerformanceReport = () => {
-    if (!studentId) return;
-    router.push(`/student-report?id=${studentId}`);
+    // Use the studentData state which should have the correct info
+    if (!studentData || !studentData.student_id || !studentData.name) {
+        console.error("Missing student data to generate report link.");
+        toast({
+            title: "Cannot View Report",
+            description: "Student information is not fully loaded yet.",
+            status: "warning",
+            duration: 3000,
+            isClosable: true,
+        });
+        return;
+    }
+    // Pass student_id as 'id' and also pass 'name'
+    console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
+    router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}`);
   };
 
   if (isLoading) {

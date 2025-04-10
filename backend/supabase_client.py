@@ -341,22 +341,26 @@ def get_rubric(exam_id):
         logger.error(f"Get rubric error: {e}")
         return None
 
-def create_submission(exam_id, student_name, script_file_name, created_by, extracted_text_script=None, extracted_text_rubric=None):
+def create_submission(exam_id, student_name, student_id, script_file_name, created_by, extracted_text_script=None, extracted_text_rubric=None):
     """Create a submission using Supabase REST API"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/submissions"
         data = {
             "exam_id": exam_id,
             "student_name": student_name,
+            "student_id": student_id,
             "script_file_name": script_file_name,
             "created_by": created_by,
             "extracted_text_script": extracted_text_script,
             "extracted_text_rubric": extracted_text_rubric
         }
         
+        logger.info(f"[Debug] Creating submission with data: {data}")
+        
         response = requests.post(url, headers=headers, json=data)
         
         if response.status_code in (200, 201):
+            logger.info(f"[Debug] Submission created successfully: {response.json()}")
             return response.json()[0]
         else:
             logger.error(f"Failed to create submission: {response.text}")

@@ -55,7 +55,7 @@ def handle_pdf(pdf_path):
         for page in pages:
             open_cv_image = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
             processed_image = preprocess_image(open_cv_image)
-            page_text = pytesseract.image_to_string(processed_image)
+            page_text = pytesseract.image_to_string(processed_image, lang='swa')
             text.append(page_text)
 
         full_text = '\n'.join(text)
@@ -95,7 +95,7 @@ def extract_text_from_image(file_path):
             processed = preprocess_image(open_cv_image)
 
             logger.debug("Running OCR on preprocessed image")
-            text = pytesseract.image_to_string(processed)
+            text = pytesseract.image_to_string(processed, lang='swa')
             logger.debug(f"OCR complete: {len(text)} characters extracted")
 
             if not text.strip():

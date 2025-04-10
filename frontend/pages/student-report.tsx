@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box, Button, Container, Flex, Heading, Text, VStack, HStack, 
   Spinner, useToast, Image, Divider, Badge, SimpleGrid, Card, 
@@ -42,6 +42,16 @@ interface Submission {
   feedback: string | null;
   created_at: string;
   exams: Exam;
+  total_points?: number | null;
+  exam_title?: string;
+}
+
+// Add the missing Student interface definition
+interface Student {
+  id: string;
+  name: string;
+  email: string;
+  student_id: string;
 }
 
 interface ExamPerformance {
@@ -102,8 +112,9 @@ const StudentReport = () => {
   const router = useRouter();
   const toast = useToast();
   const { id, name } = router.query;
-  const [studentId, setStudentId] = useState('');
-  const [studentName, setStudentName] = useState('');
+  const [studentId, setStudentId] = useState<string>('');
+  const [studentName, setStudentName] = useState<string>('');
+  const [studentData, setStudentData] = useState<Student | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
@@ -190,178 +201,133 @@ const StudentReport = () => {
     checkAuth();
   }, [id, name, router]);
   
-  const loadStudentData = async (studentId: string) => {
+  const loadStudentData = useCallback(async (studentIdFromParam: string) => {
     setIsLoading(true);
-    
+    let studentIdToUse = studentIdFromParam; // Use the ID passed from the effect
+
     try {
-      // Remove the role-based access check since we handle it in the auth verification
-      console.log("Loading data for student ID:", studentId);
+      // Step 1: Verify Auth (optional if already done in effect, but safe to keep)
+      console.log('[Debug] loadStudentData: BEFORE apiRequest auth/verify');
+      const authResponse = await apiRequest('auth/verify');
+      // Log immediately after await, before any access
+      console.log('[Debug] loadStudentData: AFTER apiRequest auth/verify.'); 
       
-      // First, get the student's submissions
-      const { data: submissionsData, error: submissionsError } = await supabase
-        .from('submissions')
-        .select('id, exam_id, student_name, student_id, score, feedback, created_at')
-        .eq('student_id', studentId)
-        .order('created_at', { ascending: true });
-      
-      if (submissionsError) {
-        console.error("Supabase error fetching submissions:", submissionsError);
-        throw submissionsError;
+      // Now try accessing properties
+      console.log('[Debug] loadStudentData: Checking authResponse object:', authResponse);
+      if (authResponse && authResponse.student_id) {
+          console.log('[Debug] loadStudentData: Condition (authResponse && authResponse.student_id) is TRUE.');
+          studentIdToUse = authResponse.student_id;
+          console.log(`[Debug] loadStudentData: Using authenticated student_id: ${studentIdToUse}`);
+      } else {
+          console.log('[Debug] loadStudentData: Condition (authResponse && authResponse.student_id) is FALSE.');
+          console.warn('[Debug] loadStudentData: student_id not found in auth response, using ID from params:', studentIdFromParam);
+          if (!studentIdFromParam) {
+              console.error('[Debug] loadStudentData: Throwing error - Student ID is missing.')
+              throw new Error('Student ID is missing.');
+          }
       }
-      
-      console.log("Raw submissions data:", submissionsData);
-      
-      if (!submissionsData || submissionsData.length === 0) {
+      console.log(`[Debug] loadStudentData: Determined studentIdToUse: ${studentIdToUse}`);
+
+      // Step 2: Fetch Student Details (Added back)
+      console.log(`[Debug] loadStudentData: BEFORE apiRequest students?student_id=${studentIdToUse}`);
+      const studentDetails = await apiRequest(`students?student_id=${studentIdToUse}`);
+      console.log(`[Debug] loadStudentData: AFTER apiRequest students?student_id=${studentIdToUse}`);
+      console.log('[Debug] loadStudentData: Student details received:', studentDetails);
+      if (!studentDetails) {
+          console.error('[Debug] loadStudentData: Throwing error - Failed to fetch student details.')
+          throw new Error('Failed to fetch student details.');
+      }
+      // Set student data state if needed for display
+      setStudentData({
+        id: studentDetails.id,
+        name: studentDetails.name,
+        email: studentDetails.email,
+        student_id: studentDetails.student_id
+      });
+      console.log('[Debug] loadStudentData: setStudentData called.');
+      // Update local state name if different from query param
+      if (studentDetails.name && studentDetails.name !== studentName) {
+          console.log(`[Debug] loadStudentData: Updating studentName state from ${studentName} to ${studentDetails.name}`);
+          setStudentName(studentDetails.name);
+      }
+
+      // Step 3: Fetch Submissions using apiRequest
+      console.log(`[Debug] loadStudentData: BEFORE apiRequest submissions?student_id=${studentIdToUse}`);
+      const submissionsData = await apiRequest(`submissions?student_id=${studentIdToUse}`);
+      console.log(`[Debug] loadStudentData: AFTER apiRequest submissions?student_id=${studentIdToUse}`);
+      console.log('[Debug] loadStudentData: Submissions data received:', submissionsData);
+
+      if (!submissionsData) {
+        // Handle case where apiRequest might return null/undefined on non-error empty response?
+        console.warn('[Debug] No submissions data received (or empty array).');
+        setSubmissions([]);
+        // Continue to analytics calculation with empty data
+      } else if (submissionsData.length === 0) {
         toast({
           title: 'No data available',
-          description: `No submissions found for Student ID: ${studentId}`,
+          description: `No submissions found for Student ID: ${studentIdToUse}`,
           status: 'info',
           duration: 5000,
           isClosable: true,
         });
         setSubmissions([]);
+        // Set empty analytics and finish loading
+        setAnalytics({
+          totalExams: 0, averageScore: 0, highestScore: 0, lowestScore: 0,
+          examPerformance: [], scoreDistribution: [], improvementTrend: [], strengthsWeaknesses: []
+        });
         setIsLoading(false);
-        return;
+        return; // Exit early as there's nothing more to process
+      } else {
+         // We have submissions, proceed
+         setSubmissions(submissionsData as Submission[]); // Assuming apiRequest returns array
       }
-      
-      // Step 2: Fetch exam details separately for each submission
-      const enhancedSubmissions = await Promise.all(
-        submissionsData.map(async (submission) => {
-          try {
-            console.log("Fetching exam data for exam_id:", submission.exam_id);
-            
-            const { data: examData, error: examError } = await supabase
-              .from('exams')
-              .select('*')  // Select all fields to ensure we get everything
-              .eq('id', submission.exam_id)
-              .single();
-            
-            if (examError) {
-              console.error("Error fetching exam data for submission:", submission.id, examError);
-              return {
-                ...submission,
-                exams: {
-                  id: submission.exam_id,
-                  title: "Unknown Exam",
-                  description: "",
-                  created_at: submission.created_at,
-                  user_id: "",
-                  total_marks: 10
-                }
-              };
-            }
-            
-            console.log("Retrieved exam data:", examData);
-            
-            // Make sure we have all the required fields
-            if (!examData || !examData.title) {
-              console.error("Exam data is missing title for exam_id:", submission.exam_id);
-              return {
-                ...submission,
-                exams: {
-                  id: submission.exam_id,
-                  title: "Untitled Exam",
-                  description: examData?.description || "",
-                  created_at: examData?.created_at || submission.created_at,
-                  user_id: examData?.user_id || "",
-                  total_marks: examData?.total_marks || 10
-                }
-              };
-            }
-            
-            return {
-              ...submission,
-              exams: {
-                id: examData.id,
-                title: examData.title,
-                description: examData.description || "",
-                created_at: examData.created_at,
-                user_id: examData.user_id || "",
-                total_marks: examData.total_marks || 10
-              }
-            };
-          } catch (err) {
-            console.error("Error processing exam data for submission:", submission.id, err);
-            return {
-              ...submission,
-              exams: {
-                id: submission.exam_id,
-                title: "Error Loading Exam",
-                description: "",
-                created_at: submission.created_at,
-                user_id: "",
-                total_marks: 10
-              }
-            };
-          }
-        })
-      );
-      
-      console.log("Enhanced submissions with exam data:", enhancedSubmissions);
-      
-      // Cast to Submission[] after transformation
-      setSubmissions(enhancedSubmissions as Submission[]);
-      
-      // Process analytics data
-      if (enhancedSubmissions.length > 0) {
-        try {
-          const gradedSubmissions = enhancedSubmissions.filter(s => s.score !== null);
-          
-          console.log("Graded submissions:", gradedSubmissions);
-          
-          if (gradedSubmissions.length === 0) {
-            toast({
-              title: 'No graded submissions',
-              description: `${studentName} has submissions, but none have been graded yet`,
-              status: 'info',
-              duration: 5000,
-              isClosable: true,
-            });
-            // Set default analytics values
-            setAnalytics({
-              totalExams: enhancedSubmissions.length,
-              averageScore: 0,
-              highestScore: 0,
-              lowestScore: 0,
-              examPerformance: [],
-              scoreDistribution: [],
-              improvementTrend: [],
-              strengthsWeaknesses: []
-            });
-            setIsLoading(false);
-            return;
-          }
-          
+
+      // Step 4: Process Submissions & Calculate Analytics
+      console.log('[Debug] Processing submissions and calculating analytics...');
+      const gradedSubmissions = submissionsData.filter((s: Submission) => s.score !== null);
+
+      if (gradedSubmissions.length === 0) {
+          toast({
+            title: 'No graded submissions',
+            description: `${studentName || studentIdToUse} has submissions, but none have been graded yet`,
+            status: 'info',
+            duration: 5000,
+            isClosable: true,
+          });
+          setAnalytics({
+            totalExams: submissionsData.length, averageScore: 0, highestScore: 0, lowestScore: 0,
+            examPerformance: [], scoreDistribution: [], improvementTrend: [], strengthsWeaknesses: []
+          });
+      } else {
+          // --- Perform Analytics Calculation --- 
           // Basic stats
-          const totalExams = new Set(enhancedSubmissions.map(s => s.exam_id)).size;
+          const totalExams = new Set(submissionsData.map((s: Submission) => s.exam_id)).size;
           const averageScore = gradedSubmissions.length > 0 
-            ? (gradedSubmissions.reduce((sum, s) => sum + ((s.score || 0) / (s.exams.total_marks || 10) * 100), 0) / gradedSubmissions.length)
+            ? (gradedSubmissions.reduce((sum: number, s: Submission) => sum + (((s.score || 0) / (s.total_points || 10)) * 100), 0) / gradedSubmissions.length)
             : 0;
           const highestScore = gradedSubmissions.length > 0 
-            ? Math.max(...gradedSubmissions.map(s => ((s.score || 0) / (s.exams.total_marks || 10) * 100)))
+            ? Math.max(...gradedSubmissions.map((s: Submission) => (((s.score || 0) / (s.total_points || 10)) * 100)))
             : 0;
           const lowestScore = gradedSubmissions.length > 0 
-            ? Math.min(...gradedSubmissions.map(s => ((s.score || 0) / (s.exams.total_marks || 10) * 100)))
+            ? Math.min(...gradedSubmissions.map((s: Submission) => (((s.score || 0) / (s.total_points || 10)) * 100)))
             : 0;
           
           // Exam performance
-          const examPerformance = gradedSubmissions.map(s => ({
-            examName: s.exams.title,
+          const examPerformance = gradedSubmissions.map((s: Submission) => ({
+            examName: s.exam_title || 'Untitled Exam', // Use field from transformed data
             score: s.score || 0,
-            totalMarks: s.exams.total_marks || 10,
-            percentage: ((s.score || 0) / (s.exams.total_marks || 10)) * 100
+            totalMarks: s.total_points || 10,
+            percentage: ((s.score || 0) / (s.total_points || 10)) * 100
           }));
           
           // Score distribution
           const scoreRanges = [
-            { range: '0-25%', count: 0 },
-            { range: '26-50%', count: 0 },
-            { range: '51-75%', count: 0 },
-            { range: '76-100%', count: 0 }
+            { range: '0-25%', count: 0 }, { range: '26-50%', count: 0 },
+            { range: '51-75%', count: 0 }, { range: '76-100%', count: 0 }
           ];
-          
-          gradedSubmissions.forEach(s => {
-            const percentage = ((s.score || 0) / (s.exams.total_marks || 10)) * 100;
+          gradedSubmissions.forEach((s: Submission) => {
+            const percentage = ((s.score || 0) / (s.total_points || 10)) * 100;
             if (percentage <= 25) scoreRanges[0].count++;
             else if (percentage <= 50) scoreRanges[1].count++;
             else if (percentage <= 75) scoreRanges[2].count++;
@@ -369,14 +335,14 @@ const StudentReport = () => {
           });
           
           // Improvement trend (chronological performance)
-          const improvementTrend = gradedSubmissions.map((s, index) => ({
+          const improvementTrend = gradedSubmissions.map((s: Submission, index: number) => ({
             examNumber: index + 1,
-            examName: s.exams.title,
+            examName: s.exam_title || 'Untitled Exam',
             date: new Date(s.created_at).toLocaleDateString(),
-            percentage: ((s.score || 0) / (s.exams.total_marks || 10)) * 100
+            percentage: ((s.score || 0) / (s.total_points || 10)) * 100
           }));
           
-          // Strengths and weaknesses analysis (simplified)
+          // Strengths and weaknesses analysis (simplified - replace with actual logic if available)
           const strengthsWeaknesses = [
             { name: 'Knowledge', score: Math.random() * 100 },
             { name: 'Understanding', score: Math.random() * 100 },
@@ -395,55 +361,27 @@ const StudentReport = () => {
             improvementTrend,
             strengthsWeaknesses
           });
-        } catch (analyticsError) {
-          console.error("Error processing analytics:", analyticsError);
-          toast({
-            title: 'Error processing analytics',
-            description: analyticsError instanceof Error ? analyticsError.message : 'Failed to process analytics data',
-            status: 'warning',
-            duration: 5000,
-            isClosable: true,
-          });
-          
-          // Set default analytics values
-          setAnalytics({
-            totalExams: enhancedSubmissions.length,
-            averageScore: 0,
-            highestScore: 0,
-            lowestScore: 0,
-            examPerformance: [],
-            scoreDistribution: [],
-            improvementTrend: [],
-            strengthsWeaknesses: []
-          });
-        }
+          console.log('[Debug] Analytics calculation complete.');
       }
+
     } catch (error) {
-      console.error('Error loading student data:', error);
+      console.error('[Error] Error in loadStudentData:', error);
       toast({
         title: 'Error loading data',
-        description: error instanceof Error ? error.message : 'An unknown error occurred',
+        description: error instanceof Error ? error.message : 'An unknown error occurred while loading student data.',
         status: 'error',
-        duration: 5000,
+        duration: 7000,
         isClosable: true,
       });
-      
-      // Set empty data
+      // Ensure loading stops even on error
       setSubmissions([]);
-      setAnalytics({
-        totalExams: 0,
-        averageScore: 0,
-        highestScore: 0,
-        lowestScore: 0,
-        examPerformance: [],
-        scoreDistribution: [],
-        improvementTrend: [],
-        strengthsWeaknesses: []
-      });
+      setAnalytics({ totalExams: 0, averageScore: 0, highestScore: 0, lowestScore: 0, examPerformance: [], scoreDistribution: [], improvementTrend: [], strengthsWeaknesses: [] });
     } finally {
+      console.log('[Debug] Setting isLoading to false in finally block.');
       setIsLoading(false);
     }
-  };
+  // Update dependencies: Include necessary state setters and router query 'id'
+  }, [id, toast, setStudentData, setSubmissions, setAnalytics, setIsLoading, setStudentName, studentName]);
   
   const generatePDF = async () => {
     if (!reportRef.current) return;
@@ -958,7 +896,7 @@ const StudentReport = () => {
                                 
                                 return (
                                   <Tr key={submission.id}>
-                                    <Td fontWeight="medium">{submission.exams.title}</Td>
+                                    <Td fontWeight="medium">{submission.exam_title || 'Untitled Exam'}</Td>
                                     <Td>{new Date(submission.created_at).toLocaleDateString()}</Td>
                                     <Td isNumeric>{submission.score} / 10</Td>
                                     <Td isNumeric>{percentage.toFixed(1)}%</Td>

@@ -459,13 +459,19 @@ const SubmissionsPage: React.FC = () => {
 
   const handleSubmissionUpload = async () => {
     if (!file || !studentName.trim() || !studentId) {
-      setError('Please provide all required fields');
+      toast({
+        title: 'Missing required fields',
+        description: 'Please select a file and enter student name and ID',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
     setIsUploading(true);
     setError('');
-    setUploadProgress(0);
+    setUploadProgress(0); // Reset progress
     
     try {
       // Get the current user's ID from localStorage
@@ -474,69 +480,59 @@ const SubmissionsPage: React.FC = () => {
         throw new Error('User not authenticated');
       }
 
-      // Get the rubric content first
-      const rubricData = await loadRubric(examId as string);
-      const rubricContent = rubricData?.content;
+      // --- Step 1: Call OCR Endpoint --- 
+      console.log('[Debug] Step 1: Uploading file for OCR extraction...');
+      const ocrFormData = new FormData();
+      ocrFormData.append('file', file);
 
-      if (!rubricContent) {
-        throw new Error('No rubric content available');
+      const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+        method: 'POST',
+        body: ocrFormData,
+        // Add any necessary headers if required by your API, e.g., for authentication
+      });
+
+      setUploadProgress(50); // Indicate progress after OCR call attempt
+
+      if (!ocrResponse.ok) {
+        const errorData = await ocrResponse.json();
+        console.error('[Debug] OCR API Error:', errorData);
+        throw new Error(errorData.error || 'Failed to extract text from file');
       }
 
-      // Upload file to storage
-      const fileName = `${Date.now()}_${file.name}`;
-      const filePath = `submissions/${fileName}`;
-      const bucketName = 'submissions';
+      const ocrResult = await ocrResponse.json();
+      const extractedTextScript = ocrResult.text;
+
+      if (!extractedTextScript) {
+        console.error('[Debug] OCR Result:', ocrResult);
+        throw new Error('OCR process did not return any text.');
+      }
+      console.log('[Debug] Step 1 complete: Text extracted successfully.');
+
+      // --- Step 2: Call Create Submission Endpoint --- 
+      console.log('[Debug] Step 2: Creating submission entry...');
+      const submissionPayload = {
+        exam_id: examId,
+        student_name: studentName,
+        student_id: studentId,
+        created_by: userId,
+        script_file_name: file.name, // Send original filename
+        extracted_text_script: extractedTextScript // Send extracted text
+      };
       
-      const { error: uploadError } = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) {
-        throw new Error(uploadError.message);
-      }
-
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucketName)
-        .getPublicUrl(filePath);
-
-      // Extract text if it's an image
-      let extractedText = '';
-      if (file.type.includes('image/') || file.name.match(/\.(jpeg|jpg|png)$/i)) {
-        try {
-          extractedText = await extractTextFromImage(publicUrl);
-        } catch (ocrError) {
-          console.error('OCR error:', ocrError);
-        }
-      } else if (file.type.includes('text/') || file.name.endsWith('.txt')) {
-        extractedText = await file.text();
-      }
-
-      // Insert into submissions table with all required fields
-      const { error: insertError } = await supabase
-        .from('submissions')
-        .insert({
-          exam_id: examId,
-          student_name: studentName,
-          student_id: studentId,
-          script_file_name: file.name,
-          script_file_url: publicUrl,
-          extracted_text_script: extractedText,
-          extracted_text_rubric: rubricContent, // Include the rubric content
-          created_by: userId, // Include the user ID
-          created_at: new Date().toISOString()
-        });
-
-      if (insertError) {
-        throw new Error(insertError.message);
-      }
+      const createSubmissionResponse = await apiRequest('api/submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(submissionPayload),
+      });
+      
+      setUploadProgress(100); // Indicate completion
+      console.log('[Debug] Step 2 complete: Submission created.', createSubmissionResponse);
 
       toast({
         title: 'Upload successful',
-        description: `${studentName}'s submission has been uploaded`,
+        description: `${studentName}'s submission has been processed and saved.`, // Updated message
         status: 'success',
         duration: 5000,
         isClosable: true,
@@ -552,11 +548,23 @@ const SubmissionsPage: React.FC = () => {
       setFile(null);
       setStudentName('');
       setStudentId('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''; // Clear file input
+      }
+      
     } catch (error) {
-      console.error('Error uploading submission:', error);
-      setError(error instanceof Error ? error.message : 'Failed to upload submission');
+      console.error('[Debug] Error during submission process:', error);
+      setError(error instanceof Error ? error.message : 'Failed to process submission');
+      toast({ // Add toast for errors as well
+        title: 'Submission Failed',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     } finally {
       setIsUploading(false);
+      setUploadProgress(0); // Reset progress on finish/error
     }
   };
 
