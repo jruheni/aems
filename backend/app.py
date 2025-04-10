@@ -239,13 +239,15 @@ def student_login():
         student = supabase.authenticate_student(student_id, password)
         
         if student:
+            logger.info(f"Student data received: {student}")  # Log the student data structure
+            
             # Set session data
             session.clear()  # Clear any existing session data
             session.permanent = True
-            session['user_id'] = student['id']
-            session['username'] = student['name']
+            session['user_id'] = student.get('id')
+            session['username'] = student.get('name', 'Unknown Student')  # Use get with default value
             session['user_type'] = 'student'
-            session['student_id'] = student['student_id']
+            session['student_id'] = student.get('student_id')
             
             # Force the session to be saved
             session.modified = True
@@ -255,24 +257,27 @@ def student_login():
             response = jsonify({
                 "message": "Login successful",
                 "user": {
-                    "id": student['id'],
-                    "username": student['name'],
-                    "student_id": student['student_id'],
+                    "id": student.get('id'),
+                    "username": student.get('name', 'Unknown Student'),  # Use get with default value
+                    "student_id": student.get('student_id'),
                     "user_type": "student"
                 }
             })
             
             # Ensure cookie settings are properly set
             if os.environ.get('FLASK_ENV', 'production') == 'production':
-                response.set_cookie(
-                    'session',
-                    session.get('session'),
-                    secure=True,
-                    httponly=True,
-                    samesite='None',
-                    domain=None,
-                    path='/'
-                )
+                # Get the actual session cookie value
+                session_cookie = request.cookies.get('session')
+                if session_cookie:
+                    response.set_cookie(
+                        'session',
+                        session_cookie,
+                        secure=True,
+                        httponly=True,
+                        samesite='None',
+                        domain=None,
+                        path='/'
+                    )
             
             return response
 
@@ -281,6 +286,7 @@ def student_login():
 
     except Exception as e:
         logger.error(f"Error in student_login: {str(e)}")
+        logger.error(f"Student data causing error: {student if 'student' in locals() else 'No student data'}")
         logger.error(traceback.format_exc())
         return jsonify({"error": "Internal server error"}), 500
 
@@ -640,10 +646,17 @@ def verify_auth():
         if user_type == 'student':
             # Get student details from database
             student_id = session.get('student_id')
+            if not student_id:
+                logger.error("[Debug] No student_id in session")
+                return jsonify({"error": "Student ID not found"}), 404
+
             response = requests.get(
                 f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
                 headers=supabase.headers
             )
+            
+            logger.info(f"[Debug] Student lookup response: {response.status_code}")
+            logger.info(f"[Debug] Student lookup data: {response.text if response.status_code == 200 else 'No data'}")
             
             if response.status_code != 200 or not response.json():
                 logger.error(f"[Debug] Failed to fetch student data: {response.text}")
@@ -651,9 +664,9 @@ def verify_auth():
                 
             student = response.json()[0]
             result = {
-                "id": student['id'],
-                "username": student['name'],
-                "student_id": student['student_id'],
+                "id": student.get('id'),
+                "username": student.get('name', 'Unknown Student'),
+                "student_id": student.get('student_id'),
                 "user_type": "student"
             }
         else:
@@ -669,8 +682,8 @@ def verify_auth():
                 
             user = response.json()[0]
             result = {
-                "id": user['id'],
-                "username": user['username'],
+                "id": user.get('id'),
+                "username": user.get('username', 'Unknown User'),
                 "user_type": "teacher"
             }
         
