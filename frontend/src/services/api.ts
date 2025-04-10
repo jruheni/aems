@@ -1,6 +1,14 @@
 import { supabase } from './supabase';
+import { getApiUrl } from '../utils/api';
 
-const API_URL = 'http://localhost:5000/api';
+// Use the environment-aware API URL configuration
+const API_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://aems.onrender.com/api' 
+  : 'http://localhost:5000/api';
+
+// Alternative approach using the getApiUrl function
+// This will ensure we use the same base URL as the rest of the application
+const getApiEndpoint = (path: string) => getApiUrl(`api/${path}`);
 
 export interface User {
   id: string;  // UUID
@@ -55,12 +63,13 @@ async function handleResponse(response: Response) {
 export const register = async (username: string, password: string): Promise<User> => {
   try {
     console.log('Registering user:', username);
-    const response = await fetch(`${API_URL}/auth/register`, {
+    const response = await fetch(getApiEndpoint('auth/register'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ username, password }),
+      credentials: 'include', // Important for cookies
     });
     
     return handleResponse(response);
@@ -72,12 +81,13 @@ export const register = async (username: string, password: string): Promise<User
 
 export const login = async (username: string, password: string): Promise<User> => {
   try {
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetch(getApiEndpoint('auth/login'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ username, password }),
+      credentials: 'include', // Important for cookies
     });
     
     return handleResponse(response);
@@ -90,8 +100,10 @@ export const login = async (username: string, password: string): Promise<User> =
 // Exams API
 export const getExams = async (userId?: string): Promise<Exam[]> => {
   try {
-    const url = userId ? `${API_URL}/exams?user_id=${userId}` : `${API_URL}/exams`;
-    const response = await fetch(url);
+    const url = userId ? getApiEndpoint(`exams?user_id=${userId}`) : getApiEndpoint('exams');
+    const response = await fetch(url, {
+      credentials: 'include', // Important for cookies
+    });
     
     return handleResponse(response);
   } catch (error) {
@@ -102,7 +114,7 @@ export const getExams = async (userId?: string): Promise<Exam[]> => {
 
 export const createExam = async (title: string, description: string, userId: string): Promise<Exam> => {
   try {
-    const response = await fetch(`${API_URL}/exams`, {
+    const response = await fetch(getApiEndpoint('exams'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -124,7 +136,7 @@ export const uploadRubric = async (examId: string, file: File): Promise<Rubric> 
     formData.append('exam_id', examId);
     formData.append('file', file);
     
-    const response = await fetch(`${API_URL}/rubrics`, {
+    const response = await fetch(getApiEndpoint('rubrics'), {
       method: 'POST',
       body: formData,
     });
@@ -138,7 +150,7 @@ export const uploadRubric = async (examId: string, file: File): Promise<Rubric> 
 
 export const getRubric = async (examId: string): Promise<Rubric> => {
   try {
-    const response = await fetch(`${API_URL}/rubrics/${examId}`);
+    const response = await fetch(getApiEndpoint(`rubrics/${examId}`));
     
     return handleResponse(response);
   } catch (error) {
@@ -161,7 +173,7 @@ export const createSubmission = async (
     formData.append('created_by', userId);
     formData.append('file', file);
     
-    const response = await fetch(`${API_URL}/submissions`, {
+    const response = await fetch(getApiEndpoint('submissions'), {
       method: 'POST',
       body: formData,
     });
@@ -175,7 +187,7 @@ export const createSubmission = async (
 
 export const getSubmissions = async (examId: string): Promise<Submission[]> => {
   try {
-    const response = await fetch(`${API_URL}/submissions/${examId}`);
+    const response = await fetch(getApiEndpoint(`submissions/${examId}`));
     
     return handleResponse(response);
   } catch (error) {
@@ -190,7 +202,7 @@ export const updateSubmissionScore = async (
   feedback: string
 ): Promise<void> => {
   try {
-    const response = await fetch(`${API_URL}/submissions/${submissionId}/score`, {
+    const response = await fetch(getApiEndpoint(`submissions/${submissionId}/score`), {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

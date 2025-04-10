@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Import API utils for consistent URL handling
+import { getApiUrl } from '../utils/api';
+
 const supabaseUrl = 'https://huomcpulnpatjyvrnlju.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1b21jcHVsbnBhdGp5dnJubGp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyNTcyOTUsImV4cCI6MjA1ODgzMzI5NX0.u-2TyALnnmw1PCBe0gUh9iUXYnhwxWE242sN1rktKNE';
 
@@ -243,7 +246,7 @@ export async function uploadRubric(examId: string, file: File): Promise<Rubric> 
     formData.append('file', file);
 
     console.log('[Debug] Sending file for OCR processing');
-    const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+    const ocrResponse = await fetch(getApiUrl('api/ocr/extract-text'), {
       method: 'POST',
       body: formData,
     });
@@ -394,7 +397,7 @@ export async function createSubmission(
     const formData = new FormData();
     formData.append('file', file);
 
-    const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
+    const ocrResponse = await fetch(getApiUrl('api/ocr/extract-text'), {
       method: 'POST',
       body: formData,
     });
@@ -486,47 +489,8 @@ export async function gradeSubmission(
       strictnessLevel
     });
     
-    // Define the API base URL - try both localhost and the server IP
-    const apiUrls = [
-      'http://localhost:5000',
-      'http://127.0.0.1:5000'
-    ];
-    
-    let apiBaseUrl = '';
-    let testSuccess = false;
-    
-    // Try each URL until one works
-    for (const url of apiUrls) {
-      try {
-        console.log(`Testing API connection to ${url}...`);
-        const testResponse = await fetch(`${url}/api/test`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          // Add timeout to prevent hanging
-          signal: AbortSignal.timeout(3000) // 3 second timeout
-        });
-        
-        if (testResponse.ok) {
-          console.log(`API test successful for ${url}`);
-          apiBaseUrl = url;
-          testSuccess = true;
-          break;
-        }
-      } catch (testError) {
-        console.warn(`API test failed for ${url}:`, testError);
-        // Continue to the next URL
-      }
-    }
-    
-    if (!testSuccess) {
-      console.error('All API connection attempts failed');
-      throw new Error('Cannot connect to grading API. Please make sure the backend server is running on port 5000.');
-    }
-    
     // Call the backend API for grading
-    console.log(`Calling grading API at ${apiBaseUrl}/api/grade...`);
+    console.log(`Calling grading API at ${getApiUrl('api/grade')}`);
     
     // Prepare the request payload
     const payload = {
@@ -543,7 +507,7 @@ export async function gradeSubmission(
       strictnessLevel: payload.strictness_level
     });
     
-    const response = await fetch(`${apiBaseUrl}/api/grade`, {
+    const response = await fetch(getApiUrl('api/grade'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

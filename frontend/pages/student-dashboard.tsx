@@ -258,6 +258,11 @@ const StudentDashboard = () => {
         });
         return;
     }
+    
+    // Save student info to localStorage before navigating
+    localStorage.setItem('studentId', studentData.student_id);
+    localStorage.setItem('studentName', studentData.name);
+    
     // Pass student_id as 'id' and also pass 'name'
     console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
     router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}`);

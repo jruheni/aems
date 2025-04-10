@@ -158,6 +158,9 @@ const StudentReport = () => {
     // Check authentication first
     const checkAuth = async () => {
       try {
+        // Add a debug log before making the request
+        console.log('[Debug] Attempting to verify auth...');
+        
         const response = await apiRequest('auth/verify');
         console.log('[Debug] Auth response:', response);
         
@@ -180,20 +183,44 @@ const StudentReport = () => {
         }
       } catch (error) {
         console.error('Auth verification error:', error);
+        
+        // Check if we have query parameters despite auth failure
+        if (id && name) {
+          // We have student params, try to use them anyway (may be a teacher accessing directly)
+          console.log('[Debug] Auth failed but using query parameters to continue');
+          setStudentId(decodeURIComponent(id as string));
+          setStudentName(decodeURIComponent(name as string));
+          loadStudentData(decodeURIComponent(id as string));
+          return;
+        }
+        
         // Type guard to check if error is an AuthError
         if (error && typeof error === 'object' && 'message' in error) {
           const authError = error as AuthError;
-          // Only redirect to login for authentication errors
+          // Only redirect to login for authentication required errors
           if (authError.message === 'Authentication required') {
             router.push('/login');
           } else {
-            toast({
-              title: 'Error',
-              description: authError.message,
-              status: 'error',
-              duration: 5000,
-              isClosable: true,
-            });
+            // For other errors like "User not found", try to get student ID from localStorage
+            const storedStudentId = localStorage.getItem('studentId');
+            const storedStudentName = localStorage.getItem('studentName');
+            
+            if (storedStudentId && storedStudentName) {
+              console.log('[Debug] Using stored credentials:', storedStudentId, storedStudentName);
+              setStudentId(storedStudentId);
+              setStudentName(storedStudentName);
+              loadStudentData(storedStudentId);
+            } else {
+              toast({
+                title: 'Error',
+                description: authError.message,
+                status: 'error',
+                duration: 5000,
+                isClosable: true,
+              });
+              // Redirect to dashboard after showing the error
+              setTimeout(() => router.push('/dashboard'), 2000);
+            }
           }
         } else {
           // Handle case where error is not of expected type
@@ -204,6 +231,8 @@ const StudentReport = () => {
             duration: 5000,
             isClosable: true,
           });
+          // Redirect to dashboard after showing the error
+          setTimeout(() => router.push('/dashboard'), 2000);
         }
       }
     };

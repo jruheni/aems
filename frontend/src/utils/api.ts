@@ -3,13 +3,16 @@ const API_BASE_URL = process.env.NODE_ENV === 'production'
   ? 'https://aems.onrender.com' 
   : 'http://localhost:5000';
 
+// Debug the current environment
+console.log(`[Debug] Running in ${process.env.NODE_ENV} mode`);
+console.log(`[Debug] Using API base URL: ${API_BASE_URL}`);
+
 // Helper function to construct API URLs
 export const getApiUrl = (path: string) => {
   // Remove leading slash if present to avoid double slashes
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  // Add /api prefix if not present
-  const apiPath = cleanPath.startsWith('api/') ? cleanPath : `api/${cleanPath}`;
-  return `${API_BASE_URL}/${apiPath}`;
+  // Don't add /api prefix automatically - use the path as provided
+  return `${API_BASE_URL}/${cleanPath}`;
 };
 
 // Helper function for making API requests
@@ -17,62 +20,91 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
   const url = `${API_BASE_URL}/${endpoint}`;
   console.log('[Debug] Making API request to:', url);
   
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: {
+  try {
+    // Set the cache control headers to prevent caching issues during deployment
+    const headers = {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       ...options.headers,
-    },
-  });
+    };
 
-  console.log('[Debug] Response status:', response.status);
-  console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
+    const response = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers,
+    });
 
-  // For submissions endpoint, don't throw error on 401
-  const isSubmissionsEndpoint = endpoint.includes('submissions');
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'API request failed' }));
-    console.log('[Debug] Error response:', error);
+    console.log('[Debug] Response status:', response.status);
+    console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
+
+    // For submissions endpoint, don't throw error on 401
+    const isSubmissionsEndpoint = endpoint.includes('submissions');
+    const isAuthVerify = endpoint === 'auth/verify';
     
-    // Only throw authentication errors if it's a verify auth request
-    // or if it's not the submissions endpoint
-    if ((endpoint === 'auth/verify' || !isSubmissionsEndpoint) && response.status === 401) {
-      throw new Error('Authentication required');
+    if (!response.ok) {
+      // Try to parse the error response as JSON
+      const error = await response.json().catch(() => ({ error: 'API request failed' }));
+      console.log('[Debug] Error response:', error);
+      
+      // If this is the auth/verify endpoint and we got a 404 with "User not found"
+      if (isAuthVerify && response.status === 404 && error.error === 'User not found') {
+        console.log('[Debug] Auth verification failed with "User not found"');
+        throw new Error('User not found');
+      }
+      
+      // Only throw authentication errors if it's a verify auth request
+      // or if it's not the submissions endpoint
+      if ((isAuthVerify || !isSubmissionsEndpoint) && response.status === 401) {
+        throw new Error('Authentication required');
+      }
+      
+      // For submissions endpoint or other errors, just throw the error message
+      throw new Error(error.error || 'API request failed');
     }
-    
-    // For submissions endpoint or other errors, just throw the error message
-    throw new Error(error.error || 'API request failed');
-  }
 
-  const data = await response.json();
-  console.log('[Debug] Response data:', data);
-  return data;
+    const data = await response.json();
+    console.log('[Debug] Response data:', data);
+    return data;
+  } catch (error) {
+    console.error('[Debug] API request error:', error);
+    throw error;
+  }
 };
 
 // Helper function for authenticated requests
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  console.log('Making authenticated request to:', url);
-  console.log('Request options:', options);
+  // Ensure the URL uses the correct base for the current environment
+  let fullUrl = url;
+  if (!url.startsWith('http')) {
+    // If it's a relative URL, prepend the API_BASE_URL
+    fullUrl = `${API_BASE_URL}/${url.startsWith('/') ? url.slice(1) : url}`;
+  }
+  
+  console.log('[Debug] Making authenticated request to:', fullUrl);
+  console.log('[Debug] Request options:', options);
   
   try {
-    const response = await fetch(url, {
+    const response = await fetch(fullUrl, {
       ...options,
       credentials: 'include',
       mode: 'cors',
       headers: {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         ...options.headers,
       },
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+    console.log('[Debug] Response status:', response.status);
+    console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Authenticated request failed:', {
+      console.error('[Debug] Authenticated request failed:', {
         status: response.status,
         statusText: response.statusText,
         error: errorText
@@ -81,10 +113,10 @@ export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     }
 
     const data = await response.json();
-    console.log('Response data:', data);
+    console.log('[Debug] Response data:', data);
     return data;
   } catch (error) {
-    console.error('Authenticated request error:', error);
+    console.error('[Debug] Authenticated request error:', error);
     throw error;
   }
 }; 
