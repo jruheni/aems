@@ -262,13 +262,11 @@ const StudentDashboard = () => {
     const simpleToken = `${studentData.student_id}_${timestamp}`;
     localStorage.setItem('authToken', simpleToken);
     
-    // Construct URL parameters properly
-    const params = new URLSearchParams({
-        id: studentData.student_id,
-        name: studentData.name,
-        student_id: studentData.student_id,
-        token: simpleToken
-    });
+    // Construct URL parameters properly using URLSearchParams
+    const params = new URLSearchParams();
+    params.append('student_id', studentData.student_id);
+    params.append('name', studentData.name);
+    params.append('token', simpleToken);
     
     // Pass student_id, name, and authentication token in the URL
     console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);

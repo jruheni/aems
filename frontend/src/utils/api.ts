@@ -17,8 +17,9 @@ export const getApiUrl = (path: string) => {
 
 // Helper function for making API requests
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
-  const url = `${API_BASE_URL}/${endpoint}`;
-  console.log('[Debug] Making API request to:', url);
+  // Handle URL parameters properly
+  const urlObj = new URL(`${API_BASE_URL}/${endpoint}`);
+  console.log('[Debug] Making API request to:', urlObj.toString());
   
   try {
     // Set default headers
@@ -49,14 +50,14 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
     }
 
     console.log('[Debug] Request config:', {
-      url,
+      url: urlObj.toString(),
       method: config.method,
       headers: config.headers,
       credentials: config.credentials,
       mode: config.mode
     });
 
-    const response = await fetch(url, config);
+    const response = await fetch(urlObj.toString(), config);
 
     console.log('[Debug] Response status:', response.status);
     console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
