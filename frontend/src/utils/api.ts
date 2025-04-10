@@ -36,15 +36,31 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
       ...options.headers,
     };
 
-    const response = await fetch(url, {
+    const config: RequestInit = {
       ...options,
       credentials: 'include',
       headers,
       mode: 'cors'
+    };
+
+    // For POST requests, ensure the method is set
+    if (options.body && !options.method) {
+      config.method = 'POST';
+    }
+
+    console.log('[Debug] Request config:', {
+      url,
+      method: config.method,
+      headers: config.headers,
+      credentials: config.credentials,
+      mode: config.mode
     });
+
+    const response = await fetch(url, config);
 
     console.log('[Debug] Response status:', response.status);
     console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
+    console.log('[Debug] Response cookies:', document.cookie);
 
     // For submissions endpoint, don't throw error on 401
     const isSubmissionsEndpoint = endpoint.includes('submissions');

@@ -222,9 +222,8 @@ def logout():
         logger.error(f"Logout error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/auth/student-login', methods=['POST', 'OPTIONS'])  # Add OPTIONS method
+@app.route('/auth/student-login', methods=['POST', 'OPTIONS'])
 def student_login():
-    # For OPTIONS requests (preflight)
     if request.method == 'OPTIONS':
         return '', 204
         
@@ -241,31 +240,48 @@ def student_login():
         
         if student:
             # Set session data
-            session.permanent = True  # Make session permanent
-            session.modified = True   # Ensure session is saved
+            session.clear()  # Clear any existing session data
+            session.permanent = True
             session['user_id'] = student['id']
-            session['username'] = student['username']  # Add username to session
+            session['username'] = student['name']
             session['user_type'] = 'student'
             session['student_id'] = student['student_id']
             
-            # Log session data for debugging
+            # Force the session to be saved
+            session.modified = True
+            
             logger.info(f"Student login successful. Session data: {dict(session)}")
             
-            return jsonify({
+            response = jsonify({
                 "message": "Login successful",
                 "user": {
                     "id": student['id'],
-                    "username": student['username'],
+                    "username": student['name'],
                     "student_id": student['student_id'],
                     "user_type": "student"
                 }
             })
-        else:
-            logger.info("Student authentication failed")
-            return jsonify({"error": "Invalid credentials"}), 401
+            
+            # Ensure cookie settings are properly set
+            if os.environ.get('FLASK_ENV', 'production') == 'production':
+                response.set_cookie(
+                    'session',
+                    session.get('session'),
+                    secure=True,
+                    httponly=True,
+                    samesite='None',
+                    domain=None,
+                    path='/'
+                )
+            
+            return response
+
+        logger.info("Student authentication failed")
+        return jsonify({"error": "Invalid credentials"}), 401
 
     except Exception as e:
         logger.error(f"Error in student_login: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({"error": "Internal server error"}), 500
 
 # Exam management endpoints
@@ -609,44 +625,8 @@ def verify_auth():
     try:
         logger.info("[Debug] Verifying authentication")
         logger.info(f"[Debug] Current session: {dict(session)}")
+        logger.info(f"[Debug] Request cookies: {request.cookies}")
         
-        # Check if authentication is provided via URL parameters (fallback for cross-origin issues)
-        student_id_param = request.args.get('student_id')
-        token_param = request.args.get('token')
-        
-        # Check if we have URL parameters for authentication
-        if student_id_param:
-            logger.info(f"[Debug] Authentication via URL parameters: student_id={student_id_param}")
-            
-            # Find the student in the database
-            response = requests.get(
-                f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id_param}",
-                headers=supabase.headers
-            )
-            
-            if response.status_code == 200 and response.json():
-                student = response.json()[0]
-                # Set up session data from URL parameters
-                session.permanent = True
-                session.modified = True
-                session['user_id'] = student['id']
-                session['username'] = student['name']
-                session['user_type'] = 'student'
-                session['student_id'] = student['student_id']
-                
-                logger.info(f"[Debug] Created session from URL parameters: {dict(session)}")
-                
-                # Return student data
-                result = {
-                    "id": student['id'],
-                    "username": student['name'],
-                    "student_id": student['student_id'],
-                    "user_type": "student"
-                }
-                logger.info(f"[Debug] Returning student data from URL params: {result}")
-                return jsonify(result)
-        
-        # Check if user is logged in via session
         user_id = session.get('user_id')
         user_type = session.get('user_type')
         
@@ -658,19 +638,15 @@ def verify_auth():
             return jsonify({"error": "User not found"}), 404
 
         if user_type == 'student':
-            logger.info(f"[Debug] Verifying student with ID: {session.get('student_id')}")
-            # Get student details from Supabase using student_id
+            # Get student details from database
             student_id = session.get('student_id')
             response = requests.get(
                 f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id}",
                 headers=supabase.headers
             )
             
-            logger.info(f"[Debug] Supabase response status: {response.status_code}")
-            logger.info(f"[Debug] Supabase response: {response.json() if response.status_code == 200 else 'No data'}")
-            
             if response.status_code != 200 or not response.json():
-                logger.info("[Debug] Student not found in database")
+                logger.error(f"[Debug] Failed to fetch student data: {response.text}")
                 return jsonify({"error": "Student not found"}), 404
                 
             student = response.json()[0]
@@ -680,17 +656,26 @@ def verify_auth():
                 "student_id": student['student_id'],
                 "user_type": "student"
             }
-            logger.info(f"[Debug] Returning student data: {result}")
-            return jsonify(result)
         else:
-            # For teachers, just return the session data
+            # Get teacher/user details
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/users?id=eq.{user_id}",
+                headers=supabase.headers
+            )
+            
+            if response.status_code != 200 or not response.json():
+                logger.error(f"[Debug] Failed to fetch user data: {response.text}")
+                return jsonify({"error": "User not found"}), 404
+                
+            user = response.json()[0]
             result = {
-                "id": user_id,
-                "username": session.get('username'),
+                "id": user['id'],
+                "username": user['username'],
                 "user_type": "teacher"
             }
-            logger.info(f"[Debug] Returning teacher data: {result}")
-            return jsonify(result)
+        
+        logger.info(f"[Debug] Returning user data: {result}")
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"[Debug] Error in verify_auth: {str(e)}")
