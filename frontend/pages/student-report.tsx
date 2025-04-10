@@ -158,88 +158,32 @@ const StudentReport = () => {
     // Check authentication first
     const checkAuth = async () => {
       try {
-        // Add a debug log before making the request
-        console.log('[Debug] Attempting to verify auth...');
-        
-        // Extract auth parameters from URL or localStorage
-        const urlStudentId = router.query.student_id?.toString();
-        const urlToken = router.query.token?.toString();
-        const storedStudentId = localStorage.getItem('studentId');
-        
-        // Construct auth parameters for the request
-        let authParams = '';
-        if (urlStudentId && urlToken) {
-          // Use URL parameters if available
-          authParams = `?student_id=${encodeURIComponent(urlStudentId)}&token=${encodeURIComponent(urlToken)}`;
-          console.log('[Debug] Using URL auth parameters');
-        } else if (storedStudentId) {
-          // Fall back to localStorage if URL parameters aren't available
-          const storedToken = localStorage.getItem('authToken') || Date.now().toString();
-          authParams = `?student_id=${encodeURIComponent(storedStudentId)}&token=${encodeURIComponent(storedToken)}`;
-          console.log('[Debug] Using localStorage auth parameters');
-        }
-        
-        // Make the auth request with the constructed parameters
-        const response = await apiRequest(`auth/verify${authParams}`);
-        console.log('[Debug] Auth response:', response);
-        
+        const response = await apiRequest('auth/verify');
         // Set the user role from the response
         setUserRole(response.user_type || 'teacher');
         
-        // If we have query parameters, use them
+        // After authentication is confirmed, load the data
         if (id && name) {
           setStudentId(decodeURIComponent(id as string));
           setStudentName(decodeURIComponent(name as string));
           loadStudentData(decodeURIComponent(id as string));
-        } else if (response.user_type === 'student' && response.student_id) {
-          // If no query params but user is a student, use their own data
-          setStudentId(response.student_id);
-          setStudentName(response.username);
-          loadStudentData(response.student_id);
-        } else {
-          // If no query params and not a student, redirect to dashboard
-          router.push('/dashboard');
         }
       } catch (error) {
         console.error('Auth verification error:', error);
-        
-        // Check if we have query parameters despite auth failure
-        if (id && name) {
-          // We have student params, try to use them anyway (may be a teacher accessing directly)
-          console.log('[Debug] Auth failed but using query parameters to continue');
-          setStudentId(decodeURIComponent(id as string));
-          setStudentName(decodeURIComponent(name as string));
-          loadStudentData(decodeURIComponent(id as string));
-          return;
-        }
-        
         // Type guard to check if error is an AuthError
         if (error && typeof error === 'object' && 'message' in error) {
           const authError = error as AuthError;
-          // Only redirect to login for authentication required errors
+          // Only redirect to login for authentication errors
           if (authError.message === 'Authentication required') {
             router.push('/login');
           } else {
-            // For other errors like "User not found", try to get student ID from localStorage
-            const storedStudentId = localStorage.getItem('studentId');
-            const storedStudentName = localStorage.getItem('studentName');
-            
-            if (storedStudentId && storedStudentName) {
-              console.log('[Debug] Using stored credentials:', storedStudentId, storedStudentName);
-              setStudentId(storedStudentId);
-              setStudentName(storedStudentName);
-              loadStudentData(storedStudentId);
-            } else {
-              toast({
-                title: 'Error',
-                description: authError.message,
-                status: 'error',
-                duration: 5000,
-                isClosable: true,
-              });
-              // Redirect to dashboard after showing the error
-              setTimeout(() => router.push('/dashboard'), 2000);
-            }
+            toast({
+              title: 'Error',
+              description: authError.message,
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+            });
           }
         } else {
           // Handle case where error is not of expected type
@@ -250,39 +194,21 @@ const StudentReport = () => {
             duration: 5000,
             isClosable: true,
           });
-          // Redirect to dashboard after showing the error
-          setTimeout(() => router.push('/dashboard'), 2000);
         }
       }
     };
 
     checkAuth();
-  }, [id, name, router, toast]);
+  }, [id, name, router]);
   
   const loadStudentData = useCallback(async (studentIdFromParam: string) => {
     setIsLoading(true);
     let studentIdToUse = studentIdFromParam; // Use the ID passed from the effect
 
     try {
-      // Create authentication parameters for API requests
-      const urlStudentId = router.query.student_id?.toString();
-      const urlToken = router.query.token?.toString();
-      const storedStudentId = localStorage.getItem('studentId');
-      
-      // Construct auth parameters for API requests
-      let authParams = '';
-      if (urlStudentId && urlToken) {
-        // Use URL parameters if available
-        authParams = `?student_id=${encodeURIComponent(urlStudentId)}&token=${encodeURIComponent(urlToken)}`;
-      } else if (storedStudentId) {
-        // Fall back to localStorage if URL parameters aren't available
-        const storedToken = localStorage.getItem('authToken') || Date.now().toString();
-        authParams = `?student_id=${encodeURIComponent(storedStudentId)}&token=${encodeURIComponent(storedToken)}`;
-      }
-
       // Step 1: Verify Auth (optional if already done in effect, but safe to keep)
       console.log('[Debug] loadStudentData: BEFORE apiRequest auth/verify');
-      const authResponse = await apiRequest(`auth/verify${authParams}`);
+      const authResponse = await apiRequest('auth/verify');
       // Log immediately after await, before any access
       console.log('[Debug] loadStudentData: AFTER apiRequest auth/verify.'); 
       
@@ -303,8 +229,8 @@ const StudentReport = () => {
       console.log(`[Debug] loadStudentData: Determined studentIdToUse: ${studentIdToUse}`);
 
       // Step 2: Fetch Student Details (Added back)
-      console.log(`[Debug] loadStudentData: BEFORE apiRequest students?student_id=${studentIdToUse}${authParams}`);
-      const studentDetails = await apiRequest(`students?student_id=${studentIdToUse}${authParams}`);
+      console.log(`[Debug] loadStudentData: BEFORE apiRequest students?student_id=${studentIdToUse}`);
+      const studentDetails = await apiRequest(`students?student_id=${studentIdToUse}`);
       console.log(`[Debug] loadStudentData: AFTER apiRequest students?student_id=${studentIdToUse}`);
       console.log('[Debug] loadStudentData: Student details received:', studentDetails);
       if (!studentDetails) {
@@ -326,8 +252,8 @@ const StudentReport = () => {
       }
 
       // Step 3: Fetch Submissions using apiRequest
-      console.log(`[Debug] loadStudentData: BEFORE apiRequest submissions?student_id=${studentIdToUse}${authParams}`);
-      const submissionsData = await apiRequest(`submissions?student_id=${studentIdToUse}${authParams}`);
+      console.log(`[Debug] loadStudentData: BEFORE apiRequest submissions?student_id=${studentIdToUse}`);
+      const submissionsData = await apiRequest(`submissions?student_id=${studentIdToUse}`);
       console.log(`[Debug] loadStudentData: AFTER apiRequest submissions?student_id=${studentIdToUse}`);
       console.log('[Debug] loadStudentData: Submissions data received:', submissionsData);
 
@@ -528,92 +454,6 @@ const StudentReport = () => {
     }
     
     return summary;
-  };
-  
-  // Function to fetch and update the latest student data
-  const refreshStudentData = async () => {
-    if (!studentId) {
-      console.error("[Debug] refreshStudentData: No student ID available for refresh");
-      toast({
-        title: 'Error',
-        description: 'No student ID available for refresh',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
-    
-    setIsLoading(true);
-    
-    // Create authentication parameters for API requests
-    const urlStudentId = router.query.student_id?.toString();
-    const urlToken = router.query.token?.toString();
-    const storedStudentId = localStorage.getItem('studentId');
-    
-    // Construct auth parameters for API requests
-    let authParams = '';
-    if (urlStudentId && urlToken) {
-      // Use URL parameters if available
-      authParams = `?student_id=${encodeURIComponent(urlStudentId)}&token=${encodeURIComponent(urlToken)}`;
-      console.log('[Debug] refreshStudentData: Using URL auth parameters');
-    } else if (storedStudentId) {
-      // Fall back to localStorage if URL parameters aren't available
-      const storedToken = localStorage.getItem('authToken') || Date.now().toString();
-      authParams = `?student_id=${encodeURIComponent(storedStudentId)}&token=${encodeURIComponent(storedToken)}`;
-      console.log('[Debug] refreshStudentData: Using localStorage auth parameters');
-    }
-
-    try {
-      console.log(`[Debug] refreshStudentData: Refreshing data for student ${studentId} with authParams`);
-      
-      // Refresh submissions
-      console.log(`[Debug] refreshStudentData: BEFORE apiRequest submissions?student_id=${studentId}${authParams}`);
-      const submissionsData = await apiRequest(`submissions?student_id=${studentId}${authParams}`);
-      console.log('[Debug] refreshStudentData: AFTER submissions request');
-      
-      if (submissionsData) {
-        setSubmissions(submissionsData);
-        console.log('[Debug] refreshStudentData: Updated submissions:', submissionsData);
-      } else {
-        console.warn('[Debug] refreshStudentData: No submissions data received');
-        setSubmissions([]);
-      }
-      
-      // Refresh analytics with auth parameters
-      console.log(`[Debug] refreshStudentData: BEFORE apiRequest analytics?student_id=${studentId}${authParams}`);
-      const analyticsData = await apiRequest(`analytics?student_id=${studentId}${authParams}`);
-      console.log('[Debug] refreshStudentData: AFTER analytics request');
-      
-      if (analyticsData) {
-        setAnalytics(analyticsData);
-        console.log('[Debug] refreshStudentData: Updated analytics:', analyticsData);
-      } else {
-        console.warn('[Debug] refreshStudentData: No analytics data received');
-        // If no analytics data is available, we could calculate it from submissions
-        // or keep the current analytics state
-      }
-      
-      toast({
-        title: 'Success',
-        description: 'Student data refreshed successfully',
-        status: 'success',
-        duration: 5000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('[Debug] refreshStudentData: Error refreshing data:', error);
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to refresh student data',
-        status: 'error',
-        duration: 7000,
-        isClosable: true,
-      });
-    } finally {
-      setIsLoading(false);
-      console.log('[Debug] refreshStudentData: Completed refresh attempt');
-    }
   };
   
   return (

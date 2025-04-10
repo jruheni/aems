@@ -32,7 +32,7 @@ import {
 import { FaChartBar, FaChartPie, FaUserGraduate, FaCheck, FaTimes, FaExclamationTriangle, FaUpload, FaEdit, FaFileAlt, FaTrash, FaArrowLeft } from 'react-icons/fa';
 import Header from '../components/Header';
 import { customColors, getGradients } from '../src/theme/colors';
-import { apiRequest, getApiUrl } from '../src/utils/api';
+import { apiRequest } from '../src/utils/api';
 import path from 'path';
 // import { Submission } from '../types/submission';
 
@@ -279,7 +279,7 @@ const SubmissionsPage: React.FC = () => {
       
       setSubmissions(transformedSubmissions);
       
-      // Calculate analytics afterloading submissions
+      // Calculate analytics after loading submissions
       calculateAnalytics(transformedSubmissions);
     } catch (error) {
       console.error('[Debug] Error loading submissions:', error);
@@ -387,7 +387,7 @@ const SubmissionsPage: React.FC = () => {
       ocrFormData.append('file', file);
 
       console.log('[Debug] Processing OCR...');
-      const ocrResponse = await fetch(getApiUrl('api/ocr/extract-text'), {
+      const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
         method: 'POST',
         body: ocrFormData,
       });
@@ -485,7 +485,7 @@ const SubmissionsPage: React.FC = () => {
       const ocrFormData = new FormData();
       ocrFormData.append('file', file);
 
-      const ocrResponse = await fetch(getApiUrl('api/ocr/extract-text'), {
+      const ocrResponse = await fetch('http://localhost:5000/api/ocr/extract-text', {
         method: 'POST',
         body: ocrFormData,
         // Add any necessary headers if required by your API, e.g., for authentication

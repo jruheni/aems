@@ -136,22 +136,28 @@ const StudentDashboard = () => {
   
   // 4. useEffect hooks
   useEffect(() => {
-    // Verify authentication using cookie
+    const storedUserId = localStorage.getItem('userId');
+    const storedUsername = localStorage.getItem('username');
+    const storedUserRole = localStorage.getItem('userRole');
+    
+    if (!storedUserId || !storedUsername || storedUserRole !== 'student') {
+      router.replace('/login');
+      return;
+    }
+
+    // Add an auth check using the cookie
     apiRequest('auth/verify')
-      .then((authResponse) => {
-        if (!authResponse || !authResponse.student_id) {
-          throw new Error('Authentication data missing');
-        }
-        setStudentId(authResponse.student_id);
-        setStudentName(authResponse.username);
+      .then(() => {
+        setStudentId(storedUserId);
+        setStudentName(storedUsername);
         loadStudentData();
       })
       .catch((error) => {
-        // Redirect to login for authentication errors
-        if (error.message === 'Authentication required' || error.message === 'Authentication data missing') {
+        // Only redirect to login if it's an authentication error
+        if (error.message === 'Authentication required') {
           router.replace('/login');
         } else {
-          // For other errors, show a toast
+          // For other errors, just show a toast
           toast({
             title: 'Error',
             description: error.message,
@@ -252,27 +258,9 @@ const StudentDashboard = () => {
         });
         return;
     }
-    
-    // Save student info to localStorage before navigating
-    localStorage.setItem('studentId', studentData.student_id);
-    localStorage.setItem('studentName', studentData.name);
-    
-    // Generate a simple token for added security
-    const timestamp = Date.now().toString();
-    const simpleToken = `${studentData.student_id}_${timestamp}`;
-    localStorage.setItem('authToken', simpleToken);
-    
-    // Construct URL parameters properly using URLSearchParams
-    const params = new URLSearchParams();
-    params.append('student_id', studentData.student_id);
-    params.append('token', simpleToken);
-    
-    // Log the constructed URL for debugging
-    const reportUrl = `/student-report?${params.toString()}`;
-    console.log('[Debug] Constructed report URL:', reportUrl);
-    
-    // Navigate to the report page
-    router.push(reportUrl);
+    // Pass student_id as 'id' and also pass 'name'
+    console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
+    router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}`);
   };
 
   if (isLoading) {
