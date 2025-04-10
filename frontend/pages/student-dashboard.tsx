@@ -263,9 +263,14 @@ const StudentDashboard = () => {
     localStorage.setItem('studentId', studentData.student_id);
     localStorage.setItem('studentName', studentData.name);
     
-    // Pass student_id as 'id' and also pass 'name'
+    // Generate a simple token for added security
+    const timestamp = Date.now().toString();
+    const simpleToken = `${studentData.student_id}_${timestamp}`;
+    localStorage.setItem('authToken', simpleToken);
+    
+    // Pass student_id, name, and authentication token in the URL
     console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
-    router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}`);
+    router.push(`/student-report?id=${encodeURIComponent(studentData.student_id)}&name=${encodeURIComponent(studentData.name)}&student_id=${encodeURIComponent(studentData.student_id)}&token=${encodeURIComponent(simpleToken)}`);
   };
 
   if (isLoading) {

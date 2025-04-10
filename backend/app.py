@@ -51,29 +51,48 @@ app = Flask(__name__)
 # Load secret key from environment or use a default for development
 app.secret_key = secrets.token_hex(16)  # Generate a random secret key
 
-# Configure session
+# Configure session for cross-domain compatibility in production
 app.config.update(
-    SESSION_COOKIE_SECURE=False,  # Allow non-HTTPS for development
-    SESSION_COOKIE_HTTPONLY=False,  # Allow JavaScript access
-    SESSION_COOKIE_SAMESITE=None,  # Allow cross-origin requests
+    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
+    SESSION_COOKIE_HTTPONLY=True,  # Make cookies not accessible via JavaScript
+    SESSION_COOKIE_SAMESITE="None",  # Required for cross-origin cookies in modern browsers
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     SESSION_COOKIE_DOMAIN=None,  # Allow any domain
-    SESSION_COOKIE_PATH='/',  # Allow any path
-    SESSION_COOKIE_BROWSER=True  # Allow browser access
+    SESSION_COOKIE_PATH='/',
 )
 
-# Configure CORS with more permissive settings
+# Configure CORS with more permissive settings for deployed environment
 CORS(app,
     resources={r"/*": {
-        "origins": "*",  # Allow all origins
+        "origins": ["https://aems-frontend.onrender.com", "http://localhost:3000"],  # Specify allowed origins
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": "*",  # Allow all headers
-        "expose_headers": "*",
-        "supports_credentials": True,
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,  # Critical for sending cookies cross-domain
         "max_age": 3600
     }},
-    supports_credentials=True
+    supports_credentials=True  # Critical for sending cookies cross-domain
 )
+
+# Add a middleware to set SameSite=None; Secure for all cookies in responses
+@app.after_request
+def add_samesite_attribute(response):
+    # Get the environment we're running in
+    env = os.environ.get('FLASK_ENV', 'production')
+    
+    # Only apply this in production
+    if env == 'production':
+        cookies = [x for x in response.headers.getlist('Set-Cookie')]
+        for i in range(len(cookies)):
+            if 'SameSite=' not in cookies[i]:
+                cookies[i] = cookies[i].rstrip(';') + '; SameSite=None; Secure;'
+        
+        # Clear existing cookies and add the modified ones
+        response.headers.pop('Set-Cookie', None)
+        for cookie in cookies:
+            response.headers.add('Set-Cookie', cookie)
+    
+    return response
 
 app.register_blueprint(ocr_bp)
 app.register_blueprint(grading_bp)
@@ -565,7 +584,43 @@ def verify_auth():
         logger.info("[Debug] Verifying authentication")
         logger.info(f"[Debug] Current session: {dict(session)}")
         
-        # Check if user is logged in
+        # Check if authentication is provided via URL parameters (fallback for cross-origin issues)
+        student_id_param = request.args.get('student_id')
+        token_param = request.args.get('token')
+        
+        # Check if we have URL parameters for authentication
+        if student_id_param:
+            logger.info(f"[Debug] Authentication via URL parameters: student_id={student_id_param}")
+            
+            # Find the student in the database
+            response = requests.get(
+                f"{supabase.SUPABASE_URL}/rest/v1/students?student_id=eq.{student_id_param}",
+                headers=supabase.headers
+            )
+            
+            if response.status_code == 200 and response.json():
+                student = response.json()[0]
+                # Set up session data from URL parameters
+                session.permanent = True
+                session.modified = True
+                session['user_id'] = student['id']
+                session['username'] = student['name']
+                session['user_type'] = 'student'
+                session['student_id'] = student['student_id']
+                
+                logger.info(f"[Debug] Created session from URL parameters: {dict(session)}")
+                
+                # Return student data
+                result = {
+                    "id": student['id'],
+                    "username": student['name'],
+                    "student_id": student['student_id'],
+                    "user_type": "student"
+                }
+                logger.info(f"[Debug] Returning student data from URL params: {result}")
+                return jsonify(result)
+        
+        # Check if user is logged in via session
         user_id = session.get('user_id')
         user_type = session.get('user_type')
         
