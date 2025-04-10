@@ -53,9 +53,9 @@ app.secret_key = secrets.token_hex(16)  # Generate a random secret key
 
 # Configure session for cross-domain compatibility in production
 app.config.update(
-    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
+    SESSION_COOKIE_SECURE=True,  # Enable secure cookies
     SESSION_COOKIE_HTTPONLY=True,  # Make cookies not accessible via JavaScript
-    SESSION_COOKIE_SAMESITE="None",  # Required for cross-origin cookies in modern browsers
+    SESSION_COOKIE_SAMESITE="None",  # Required for cross-origin cookies
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     SESSION_COOKIE_DOMAIN=None,  # Allow any domain
     SESSION_COOKIE_PATH='/',
@@ -82,7 +82,7 @@ CORS(app,
             "Access-Control-Allow-Methods",
             "Access-Control-Allow-Credentials"
         ],
-        "expose_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type", "Authorization", "Set-Cookie"],
         "supports_credentials": True,
         "max_age": 3600
     }},
@@ -245,7 +245,7 @@ def student_login():
             session.clear()  # Clear any existing session data
             session.permanent = True
             session['user_id'] = student.get('id')
-            session['username'] = student.get('name', 'Unknown Student')  # Use get with default value
+            session['username'] = student.get('name', 'Unknown Student')
             session['user_type'] = 'student'
             session['student_id'] = student.get('student_id')
             
@@ -258,26 +258,25 @@ def student_login():
                 "message": "Login successful",
                 "user": {
                     "id": student.get('id'),
-                    "username": student.get('name', 'Unknown Student'),  # Use get with default value
+                    "username": student.get('name', 'Unknown Student'),
                     "student_id": student.get('student_id'),
                     "user_type": "student"
                 }
             })
             
-            # Ensure cookie settings are properly set
-            if os.environ.get('FLASK_ENV', 'production') == 'production':
-                # Get the actual session cookie value
-                session_cookie = request.cookies.get('session')
-                if session_cookie:
-                    response.set_cookie(
-                        'session',
-                        session_cookie,
-                        secure=True,
-                        httponly=True,
-                        samesite='None',
-                        domain=None,
-                        path='/'
-                    )
+            # Set cookie settings for cross-origin
+            session_cookie = request.cookies.get('session')
+            if session_cookie:
+                response.set_cookie(
+                    'session',
+                    session_cookie,
+                    secure=True,
+                    httponly=True,
+                    samesite='None',
+                    domain=None,
+                    path='/',
+                    max_age=60*60*24*7  # 7 days
+                )
             
             return response
 

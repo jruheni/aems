@@ -119,17 +119,6 @@ export default function Login() {
         }),
       });
       
-      // Store user info from the nested user object
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('userId', response.user.id);
-        localStorage.setItem('username', response.user.username);
-        localStorage.setItem('userRole', 'student');
-        
-        // Store studentId specifically for student-report page
-        localStorage.setItem('studentId', response.user.student_id);
-        localStorage.setItem('studentName', response.user.username);
-      }
-      
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',

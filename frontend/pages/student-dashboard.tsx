@@ -136,28 +136,22 @@ const StudentDashboard = () => {
   
   // 4. useEffect hooks
   useEffect(() => {
-    const storedUserId = localStorage.getItem('userId');
-    const storedUsername = localStorage.getItem('username');
-    const storedUserRole = localStorage.getItem('userRole');
-    
-    if (!storedUserId || !storedUsername || storedUserRole !== 'student') {
-      router.replace('/login');
-      return;
-    }
-
-    // Add an auth check using the cookie
+    // Verify authentication using cookie
     apiRequest('auth/verify')
-      .then(() => {
-        setStudentId(storedUserId);
-        setStudentName(storedUsername);
+      .then((authResponse) => {
+        if (!authResponse || !authResponse.student_id) {
+          throw new Error('Authentication data missing');
+        }
+        setStudentId(authResponse.student_id);
+        setStudentName(authResponse.username);
         loadStudentData();
       })
       .catch((error) => {
-        // Only redirect to login if it's an authentication error
-        if (error.message === 'Authentication required') {
+        // Redirect to login for authentication errors
+        if (error.message === 'Authentication required' || error.message === 'Authentication data missing') {
           router.replace('/login');
         } else {
-          // For other errors, just show a toast
+          // For other errors, show a toast
           toast({
             title: 'Error',
             description: error.message,
