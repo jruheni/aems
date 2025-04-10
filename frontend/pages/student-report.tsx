@@ -159,14 +159,24 @@ const StudentReport = () => {
     const checkAuth = async () => {
       try {
         const response = await apiRequest('auth/verify');
+        console.log('[Debug] Auth response:', response);
+        
         // Set the user role from the response
         setUserRole(response.user_type || 'teacher');
         
-        // After authentication is confirmed, load the data
+        // If we have query parameters, use them
         if (id && name) {
           setStudentId(decodeURIComponent(id as string));
           setStudentName(decodeURIComponent(name as string));
           loadStudentData(decodeURIComponent(id as string));
+        } else if (response.user_type === 'student' && response.student_id) {
+          // If no query params but user is a student, use their own data
+          setStudentId(response.student_id);
+          setStudentName(response.username);
+          loadStudentData(response.student_id);
+        } else {
+          // If no query params and not a student, redirect to dashboard
+          router.push('/dashboard');
         }
       } catch (error) {
         console.error('Auth verification error:', error);
@@ -199,7 +209,7 @@ const StudentReport = () => {
     };
 
     checkAuth();
-  }, [id, name, router]);
+  }, [id, name, router, toast]);
   
   const loadStudentData = useCallback(async (studentIdFromParam: string) => {
     setIsLoading(true);
