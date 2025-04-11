@@ -119,6 +119,14 @@ export default function Login() {
         }),
       });
       
+      // Store user info in localStorage
+      if (response.user) {
+        localStorage.setItem('userId', response.user.id);
+        localStorage.setItem('username', response.user.username);
+        localStorage.setItem('userRole', 'student');
+        localStorage.setItem('studentId', response.user.student_id);
+      }
+      
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -128,11 +136,20 @@ export default function Login() {
         position: 'top',
       });
 
+      // Navigate to student dashboard
       router.replace('/student-dashboard');
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to login. Please try again.';
       setError(errorMessage);
+      toast({
+        title: 'Login Failed',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+        position: 'top',
+      });
     } finally {
       setIsLoading(false);
     }

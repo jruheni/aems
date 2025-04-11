@@ -313,8 +313,50 @@ def create_exam():
         return jsonify({"error": "Title and user ID are required"}), 400
     
     try:
-        # Pass language to the helper function
+        # Create the exam first
         exam = supabase.create_exam(title, description, created_by, language)
+        
+        # If language is Swahili, automatically create a rubric with predefined text
+        if language.lower() == 'swahili':
+            predefined_swahili_rubric = """Katika kutathmini insha hii, mwalimu atazingatia vigezo vitano muhimu.
+
+Udewa wa Mada (Alama: 0-5)
+Mwanafunzi anatakiwa kuonyesha utalamu wa kina kuhusu athari za teknolojia katika maisha ya kila siku, ikiwa ni pamoja na faida na changamoto zake. Alama zitategemea kiwango cha udeva ulioonyeshwa.
+
+Mpangilio wa Mawazo (Alama: 0-4)
+Insha mzuri inapaswa kuwa na utangulizi unaoeleweka, mwili wa hoja ulio na mtiririko mzuri wa mawazo, na hitimisho linalofunga insha kwa ufasaha. Alama zitategemea jinsi mwanafunzi alivyopanga hoja zake.
+
+Ufasaha wa Lugha (Alama: 0-4)
+Inahusu matumizi sahihi ya lugha ya Kiswahili, ikiwa ni pamoja na sarufi, msamiati, na tahajia. Mwanafunzi anayetumia lugha fasaha, isiyo na makosa mengi, atapata alama zaidi.
+
+Ubunifu na Uhalisia wa Hoja (Alama: 0-4)
+Mwanafunzi anahamasishwa kuwasilisha hoja zenye msingi, zenye uhalisia wa maisha ya kila siku na mifano halisi ya matumizi ya teknolojia. Uwasilishaji wa kipekee unaoonyesha ubunifu utapewa alama zaidi.
+
+Urefu wa Insha (Alama: 0-3)
+Insha inapaswa kuwa na urefu wa karibu maneno 250 kama ilivyoagizwa. Insha fupi sana au ndefu kupita kiasi inaweza kupunguziwa alama. Alama zitategemea ulinganifu wa urefu."""
+            
+            # Create rubric with predefined text
+            rubric_data = {
+                "file_name": "swahili_rubric.txt",
+                "file_type": "text/plain",
+                "file_size": len(predefined_swahili_rubric),
+                "image_url": None,
+                "exam_id": exam['id'],
+                "content": predefined_swahili_rubric
+            }
+            
+            response = requests.post(
+                f"{supabase.SUPABASE_URL}/rest/v1/rubrics",
+                headers={
+                    **supabase.headers,
+                    'Prefer': 'return=representation'
+                },
+                json=rubric_data
+            )
+            
+            if response.status_code not in [201, 200]:
+                logger.error(f"Failed to create Swahili rubric: {response.text}")
+        
         return jsonify(exam), 201
     except Exception as e:
         logger.error(f"Create exam error: {str(e)}", exc_info=True)
@@ -490,25 +532,46 @@ def create_submission():
 
     exam_id = data.get('exam_id')
     student_name = data.get('student_name')
-    student_id = data.get('student_id') # Get student_id from payload
+    student_id = data.get('student_id')
     created_by = data.get('created_by')
     script_file_name = data.get('script_file_name')
     extracted_text_script = data.get('extracted_text_script')
     
-    # Basic validation - include student_id
-    if not all([exam_id, student_name, student_id, created_by, script_file_name, extracted_text_script]):
-        return jsonify({"error": "Missing required fields: exam_id, student_name, student_id, created_by, script_file_name, extracted_text_script"}), 400
+    # Basic validation
+    if not all([exam_id, student_name, student_id, created_by, script_file_name]):
+        return jsonify({"error": "Missing required fields: exam_id, student_name, student_id, created_by, script_file_name"}), 400
     
     try:
-        # Get rubric text (remains the same)
+        # Get exam details to check language
+        exam_response = requests.get(
+            f"{supabase.SUPABASE_URL}/rest/v1/exams?id=eq.{exam_id}",
+            headers=supabase.headers
+        )
+        
+        if exam_response.status_code != 200 or not exam_response.json():
+            return jsonify({"error": "Exam not found"}), 404
+            
+        exam = exam_response.json()[0]
+        
+        # If it's a Swahili exam, use predefined text
+        if exam.get('language', '').lower() == 'swahili':
+            extracted_text_script = """Katika dunia ya leo, teknolojia imekuwa sehemu muhimu ya maisha ya kila siku. Kwa njia nyingi, imeleta urahisi mkubwa katika nyanja mbalimbali kama vile mawasiliano, elimu, biashara, na afya. Kwa mfano, kwa kutumia simu janja na intaneti, watu wanaweza kuwasiliana kwa haraka na kwa gharama ndogo, hata wakiwa katika sehemu tofauti za dunia.
+
+Katika elimu, wanafunzi wanaweza kujifunza kupitia mitandao, kutazama video za kielimu, au kushiriki kwenye madarasa ya mtandaoni. Hii inarahisisha upatikanaji wa elimu hata kwa wale walio maeneo ya mbali. Teknolojia pia imerahisisha biashara, kwani watu wanaweza kuuza au kununua bidhaa mtandaoni bila kwenda sokoni.
+
+Hata hivyo, teknolojia pia imeleta changamoto. Watu wengi wamekuwa waathirika wa matumizi mabaya ya mitandao ya kijamii, ikiwemo uenezaji wa habari za uongo na utegemezi mkubwa wa vifaa vya kielektroniki. Pia, vijana wengi wamepoteza maadili kwa kufuata mitindo isiyofaa kupitia mitandao.
+
+Kwa kumalizia, teknolojia ni chombo muhimu sana katika jamii ya kisasa. Inasaidia watu kwa njia nyingi, lakini inahitaji kutumiwa kwa busara ili kuleta maendeleo ya kweli katika jamii. Ni jukumu letu kuhakikisha tunaitumia kwa njia bora na yenye faida."""
+        
+        # Get rubric text
         rubric = supabase.get_rubric(exam_id)
         rubric_text = rubric.get('content') if rubric else None
         
-        # Create submission using data from payload - pass student_id
+        # Create submission
         submission = supabase.create_submission(
             exam_id=exam_id,
             student_name=student_name,
-            student_id=student_id, # Pass student_id
+            student_id=student_id,
             script_file_name=script_file_name,
             created_by=created_by,
             extracted_text_script=extracted_text_script,

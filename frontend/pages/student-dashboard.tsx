@@ -139,35 +139,37 @@ const StudentDashboard = () => {
     const storedUserId = localStorage.getItem('userId');
     const storedUsername = localStorage.getItem('username');
     const storedUserRole = localStorage.getItem('userRole');
+    const storedStudentId = localStorage.getItem('studentId');
     
-    if (!storedUserId || !storedUsername || storedUserRole !== 'student') {
-      router.replace('/login');
+    if (!storedUserId || !storedUsername || storedUserRole !== 'student' || !storedStudentId) {
+      router.replace('/login?role=student');
       return;
     }
 
     // Add an auth check using the cookie
     apiRequest('auth/verify')
-      .then(() => {
-        setStudentId(storedUserId);
+      .then((response) => {
+        if (response.user_type !== 'student') {
+          throw new Error('Invalid user type');
+        }
+        setStudentId(storedStudentId);
         setStudentName(storedUsername);
         loadStudentData();
       })
       .catch((error) => {
-        // Only redirect to login if it's an authentication error
-        if (error.message === 'Authentication required') {
-          router.replace('/login');
-        } else {
-          // For other errors, just show a toast
-          toast({
-            title: 'Error',
-            description: error.message,
-            status: 'error',
-            duration: 5000,
-            isClosable: true,
-          });
-        }
+        console.error('Auth error:', error);
+        // Clear localStorage and redirect to login
+        localStorage.clear();
+        router.replace('/login?role=student');
+        toast({
+          title: 'Authentication Error',
+          description: 'Please log in again',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
       });
-  }, [router]);
+  }, [router, toast]);
   
   // 5. useCallback hooks
   const loadStudentData = useCallback(async () => {
