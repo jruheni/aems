@@ -836,12 +836,25 @@ def get_student():
 def extract_text():
     """Extract text from uploaded file"""
     try:
+        logger.info("[Debug OCR] Starting text extraction")
+        logger.info(f"[Debug OCR] Request files: {request.files}")
+        logger.info(f"[Debug OCR] Request form: {request.form}")
+        logger.info(f"[Debug OCR] Content type: {request.content_type}")
+        
         if 'file' not in request.files:
+            logger.error("[Debug OCR] No file provided in request")
             return jsonify({'error': 'No file provided'}), 400
 
         file = request.files['file']
         if file.filename == '':
+            logger.error("[Debug OCR] Empty filename")
             return jsonify({'error': 'No file selected'}), 400
+
+        # Log file details
+        logger.info(f"[Debug OCR] File received: {file.filename}")
+        logger.info(f"[Debug OCR] Content type: {file.content_type}")
+        logger.info(f"[Debug OCR] File size: {len(file.read())}")
+        file.seek(0)  # Reset file pointer after reading
 
         # Save file temporarily
         filename = secure_filename(file.filename)
@@ -850,20 +863,44 @@ def extract_text():
 
         try:
             # Extract text using OCR
-            extracted_text = extract_text_from_image(filepath)
+            logger.info("[Debug OCR] Starting OCR extraction")
+            logger.info(f"[Debug OCR] Processing file: {filepath}")
             
-            if not extracted_text:
+            # Read the image using cv2
+            image = cv2.imread(filepath)
+            if image is None:
+                logger.error("[Debug OCR] Failed to read image file")
+                return jsonify({'error': 'Failed to read image file'}), 400
+                
+            # Preprocess the image
+            processed_image = preprocess_image(image)
+            
+            # Convert to PIL Image for Tesseract
+            pil_image = Image.fromarray(processed_image)
+            
+            # Extract text using Tesseract
+            extracted_text = pytesseract.image_to_string(pil_image)
+            
+            if not extracted_text or len(extracted_text.strip()) == 0:
+                logger.error("[Debug OCR] No text extracted from image")
                 return jsonify({'error': 'No text could be extracted'}), 400
 
+            logger.info(f"[Debug OCR] Successfully extracted text: {extracted_text[:100]}...")
             return jsonify({'text': extracted_text}), 200
 
+        except Exception as e:
+            logger.error(f"[Debug OCR] Error during text extraction: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
         finally:
             # Clean up temporary file
             if os.path.exists(filepath):
                 os.remove(filepath)
+                logger.info("[Debug OCR] Cleaned up temporary file")
 
     except Exception as e:
-        logger.error(f"Error extracting text: {str(e)}")
+        logger.error(f"[Debug OCR] Error in extract_text endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 def preprocess_image(image):

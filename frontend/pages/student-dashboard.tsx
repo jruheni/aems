@@ -265,12 +265,14 @@ const StudentDashboard = () => {
     // Construct URL parameters properly using URLSearchParams
     const params = new URLSearchParams();
     params.append('student_id', studentData.student_id);
-    params.append('name', studentData.name);
     params.append('token', simpleToken);
     
-    // Pass student_id, name, and authentication token in the URL
-    console.log(`[Debug] Navigating to report for student_id: ${studentData.student_id}, name: ${studentData.name}`);
-    router.push(`/student-report?${params.toString()}`);
+    // Log the constructed URL for debugging
+    const reportUrl = `/student-report?${params.toString()}`;
+    console.log('[Debug] Constructed report URL:', reportUrl);
+    
+    // Navigate to the report page
+    router.push(reportUrl);
   };
 
   if (isLoading) {

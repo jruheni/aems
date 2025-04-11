@@ -17,8 +17,22 @@ export const getApiUrl = (path: string) => {
 
 // Helper function for making API requests
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
-  // Handle URL parameters properly
-  const urlObj = new URL(`${API_BASE_URL}/${endpoint}`);
+  // Split endpoint into path and query parameters
+  const [path, queryString] = endpoint.split('?');
+  
+  // Create URL object with base path
+  const urlObj = new URL(`${API_BASE_URL}/${path}`);
+  
+  // Add query parameters if they exist
+  if (queryString) {
+    // Parse the query string properly
+    const searchParams = new URLSearchParams(queryString);
+    // Convert entries to array and append each parameter
+    Array.from(searchParams).forEach(([key, value]) => {
+      urlObj.searchParams.append(key, value);
+    });
+  }
+  
   console.log('[Debug] Making API request to:', urlObj.toString());
   
   try {
@@ -64,8 +78,8 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
     console.log('[Debug] Response cookies:', document.cookie);
 
     // For submissions endpoint, don't throw error on 401
-    const isSubmissionsEndpoint = endpoint.includes('submissions');
-    const isAuthVerify = endpoint === 'auth/verify';
+    const isSubmissionsEndpoint = path.includes('submissions');
+    const isAuthVerify = path === 'auth/verify';
     
     if (!response.ok) {
       // Try to parse the error response as JSON

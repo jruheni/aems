@@ -134,9 +134,9 @@ export const uploadRubric = async (examId: string, file: File): Promise<Rubric> 
   try {
     const formData = new FormData();
     formData.append('exam_id', examId);
-    formData.append('file', file);
+    formData.append('rubric', file);
     
-    const response = await fetch(getApiEndpoint('rubrics'), {
+    const response = await fetch(getApiEndpoint('ocr/extract'), {
       method: 'POST',
       body: formData,
     });
