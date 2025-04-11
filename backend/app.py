@@ -93,7 +93,9 @@ CORS(app,
 @app.after_request
 def after_request(response):
     origin = request.headers.get('Origin')
-    if origin in ["https://aems-frontend.onrender.com", "http://localhost:3000"]:
+    allowed_origins = ["https://aems-frontend.onrender.com", "http://localhost:3000"]
+    
+    if origin in allowed_origins:
         response.headers.add('Access-Control-Allow-Origin', origin)
     
     # Add CORS headers
@@ -107,16 +109,15 @@ def after_request(response):
         'GET, POST, PUT, DELETE, OPTIONS')
     
     # Handle cookies in production
-    if os.environ.get('FLASK_ENV', 'production') == 'production':
-        cookies = [x for x in response.headers.getlist('Set-Cookie')]
-        for i in range(len(cookies)):
-            if 'SameSite=' not in cookies[i]:
-                cookies[i] = f"{cookies[i].rstrip(';')}; SameSite=None; Secure"
-        
-        # Clear existing cookies and add the modified ones
-        response.headers.pop('Set-Cookie', None)
-        for cookie in cookies:
-            response.headers.add('Set-Cookie', cookie)
+    cookies = [x for x in response.headers.getlist('Set-Cookie')]
+    for i in range(len(cookies)):
+        if 'SameSite=' not in cookies[i]:
+            cookies[i] = f"{cookies[i].rstrip(';')}; SameSite=None; Secure"
+    
+    # Clear existing cookies and add the modified ones
+    response.headers.pop('Set-Cookie', None)
+    for cookie in cookies:
+        response.headers.add('Set-Cookie', cookie)
     
     return response
 

@@ -1,6 +1,6 @@
 // API Configuration
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://aems.onrender.com' 
+  ? 'http://localhost:5000'  // Change this to use local backend
   : 'http://localhost:5000';
 
 // Debug the current environment
@@ -11,7 +11,6 @@ console.log(`[Debug] Using API base URL: ${API_BASE_URL}`);
 export const getApiUrl = (path: string) => {
   // Remove leading slash if present to avoid double slashes
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  // Don't add /api prefix automatically - use the path as provided
   return `${API_BASE_URL}/${cleanPath}`;
 };
 
@@ -25,9 +24,7 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
   
   // Add query parameters if they exist
   if (queryString) {
-    // Parse the query string properly
     const searchParams = new URLSearchParams(queryString);
-    // Convert entries to array and append each parameter
     Array.from(searchParams).forEach(([key, value]) => {
       urlObj.searchParams.append(key, value);
     });
@@ -75,29 +72,23 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
 
     console.log('[Debug] Response status:', response.status);
     console.log('[Debug] Response headers:', Object.fromEntries(response.headers.entries()));
-    console.log('[Debug] Response cookies:', document.cookie);
 
-    // For submissions endpoint, don't throw error on 401
-    const isSubmissionsEndpoint = path.includes('submissions');
-    const isAuthVerify = path === 'auth/verify';
-    
     if (!response.ok) {
       // Try to parse the error response as JSON
       let errorData;
       try {
         errorData = await response.json();
       } catch {
-        errorData = { error: 'API request failed' };
+        errorData = { 
+          error: response.status === 0 
+            ? 'Network error: Cannot connect to the backend server. Please ensure it is running locally on port 5000.' 
+            : 'API request failed'
+        };
       }
       console.log('[Debug] Error response:', errorData);
       
-      if (isAuthVerify && response.status === 404 && errorData.error === 'User not found') {
-        console.log('[Debug] Auth verification failed with "User not found"');
-        throw new Error('User not found');
-      }
-      
-      if ((isAuthVerify || !isSubmissionsEndpoint) && response.status === 401) {
-        throw new Error('Authentication required');
+      if (response.status === 0) {
+        throw new Error('Network error: Cannot connect to the backend server. Please ensure it is running locally on port 5000.');
       }
       
       throw new Error(errorData.error || 'API request failed');
