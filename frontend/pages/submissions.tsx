@@ -279,7 +279,7 @@ const SubmissionsPage: React.FC = () => {
       
       setSubmissions(transformedSubmissions);
       
-      // Calculate analytics after loading submissions
+      // Calculate analytics afterloading submissions
       calculateAnalytics(transformedSubmissions);
     } catch (error) {
       console.error('[Debug] Error loading submissions:', error);
