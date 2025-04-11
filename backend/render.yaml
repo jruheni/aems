@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: aems-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHONPATH
+        value: .
+      - key: FLASK_ENV
+        value: production
+    packages:
+      - tesseract-ocr
+      - tesseract-ocr-swa  # Swahili language support
+      - poppler-utils      # Required for pdf2image
+      - libgl1            # Required for OpenCV
+    healthCheckPath: /
+    autoDeploy: true
+    plan: starter 
