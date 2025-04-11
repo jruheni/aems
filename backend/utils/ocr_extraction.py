@@ -9,13 +9,65 @@ import platform
 
 logger = logging.getLogger(__name__)
 
-# Set the path to the Tesseract executable based on the operating system
-if platform.system() == 'Windows':
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    # Alternative locations to check if the above doesn't work
-    if not os.path.exists(pytesseract.pytesseract.tesseract_cmd):
-        if os.path.exists(r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe'):
-            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe'
+def configure_tesseract():
+    """Configure Tesseract path based on the environment"""
+    logger.info(f"Configuring Tesseract for platform: {platform.system()}")
+    logger.info(f"Current PATH: {os.environ.get('PATH', 'Not set')}")
+    logger.info(f"TESSDATA_PREFIX: {os.environ.get('TESSDATA_PREFIX', 'Not set')}")
+    
+    if platform.system() == 'Windows':
+        windows_paths = [
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe'
+        ]
+        for path in windows_paths:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                logger.info(f"Using Tesseract from: {path}")
+                return True
+    else:
+        # For Linux/Unix systems, check common locations
+        unix_paths = [
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/opt/local/bin/tesseract',
+            '/usr/share/tesseract-ocr/tesseract'
+        ]
+        
+        # First try which command
+        try:
+            import subprocess
+            tesseract_path = subprocess.check_output(['which', 'tesseract']).decode().strip()
+            logger.info(f"Found Tesseract using 'which' command: {tesseract_path}")
+            if os.path.exists(tesseract_path):
+                pytesseract.pytesseract.tesseract_cmd = tesseract_path
+                # Verify it works
+                version = subprocess.check_output([tesseract_path, '--version']).decode()
+                logger.info(f"Tesseract version: {version}")
+                return True
+        except Exception as e:
+            logger.warning(f"Could not find Tesseract using 'which' command: {str(e)}")
+        
+        # Try common paths
+        for path in unix_paths:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                logger.info(f"Using Tesseract from: {path}")
+                try:
+                    # Verify it works
+                    import subprocess
+                    version = subprocess.check_output([path, '--version']).decode()
+                    logger.info(f"Tesseract version: {version}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"Found Tesseract at {path} but failed to verify: {str(e)}")
+                    continue
+    
+    logger.error("Tesseract not found in any common locations")
+    return False
+
+# Configure Tesseract when module is loaded
+configure_tesseract()
 
 def preprocess_image(image):
     """

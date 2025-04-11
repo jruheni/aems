@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: aems-backend
+    env: python
+    buildCommand: |
+      # Update package lists and install sudo
+      apt-get update -y
+      apt-get install -y sudo
+      # Install system dependencies with sudo
+      sudo apt-get install -y tesseract-ocr
+      sudo apt-get install -y tesseract-ocr-swa
+      sudo apt-get install -y poppler-utils
+      sudo apt-get install -y libgl1
+      # Create tessdata directory if it doesn't exist
+      sudo mkdir -p /usr/share/tesseract-ocr/4.00/tessdata
+      # Verify Tesseract installation and location
+      which tesseract
+      tesseract --version
+      # List installed languages
+      tesseract --list-langs
+      # Install Python dependencies
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHONPATH
+        value: .
+      - key: FLASK_ENV
+        value: production
+      - key: TESSDATA_PREFIX
+        value: /usr/share/tesseract-ocr/4.00/tessdata
+      - key: PATH
+        value: /usr/bin:/usr/local/bin:/usr/share/tesseract-ocr:/opt/render/project/src/.apt/usr/bin:$PATH
+    healthCheckPath: /
+    autoDeploy: true
+    plan: starter 
