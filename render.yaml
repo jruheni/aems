@@ -2,6 +2,7 @@ services:
   - type: web
     name: aems-backend
     env: python
+    rootDir: backend  # Specify the backend directory
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
@@ -9,6 +10,8 @@ services:
         value: .
       - key: FLASK_ENV
         value: production
+      - key: PATH  # Add Tesseract to PATH
+        value: /usr/bin:/usr/local/bin:/opt/render/project/src/.apt/usr/bin
     packages:
       - tesseract-ocr
       - tesseract-ocr-swa  # Swahili language support
